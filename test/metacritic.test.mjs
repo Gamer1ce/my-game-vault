@@ -51,6 +51,28 @@ test("RAWG 缺分时从 Metacritic 公开游戏页补全", async () => {
   });
 });
 
+test("Metacritic 标题迁移后跟随返回的规范 slug", async () => {
+  const connector = createMetacriticConnector({ fetchFn: async (url) => {
+    if (url.hostname === "backend.metacritic.com" && url.pathname.includes("persona-5-strikers")) {
+      return { ok: true, status: 200, json: async () => ({
+        data: { item: { title: "Persona 5 Strikers", slug: "persona-5-strikers", criticScoreSummary: { score: 83 } } }
+      }) };
+    }
+    if (url.hostname === "backend.metacritic.com") {
+      return { ok: false, status: 301, json: async () => ({
+        errors: [{ context: { availableOn: [{ slug: "persona-5-strikers" }] } }]
+      }) };
+    }
+    return { ok: true, status: 200, json: async () => ({
+      results: [{ name: "Persona 5 Scramble: The Phantom Strikers", slug: "persona-5-scramble-the-phantom-strikers", metacritic: null }]
+    }) };
+  } });
+  assert.deepEqual(await connector.fetchScore("valid-api-key-1234", { title: "Persona 5 Scramble: The Phantom Strikers", platform: "playstation" }), {
+    score: 83,
+    scoreUrl: "https://www.metacritic.com/game/persona-5-strikers/"
+  });
+});
+
 test("列表无总分时读取游戏详情中的平台分数", async () => {
   const connector = createMetacriticConnector({ fetchFn: async (url) => ({
     ok: true,

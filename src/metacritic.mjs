@@ -56,7 +56,12 @@ async function metacriticPageScore(fetchFn, game, rawgMatch) {
     rawgMatch?.slug,
     metacriticSlug(rawgMatch?.name)
   ].filter(Boolean))];
-  for (const slug of slugs) {
+  const visited = new Set();
+  const canonical = new Set();
+  for (let index = 0; index < slugs.length; index += 1) {
+    const slug = slugs[index];
+    if (visited.has(slug)) continue;
+    visited.add(slug);
     const url = new URL(`${METACRITIC_BASE}/${encodeURIComponent(slug)}/web`);
     url.searchParams.set("componentName", "product");
     url.searchParams.set("componentDisplayName", "Product");
@@ -64,13 +69,19 @@ async function metacriticPageScore(fetchFn, game, rawgMatch) {
     const response = await fetchFn(url, {
       headers: { Accept: "application/json", "User-Agent": "GamePlaytimeTracker/1.0" }
     });
-    if (response.status === 404) continue;
     const payload = await response.json().catch(() => null);
+    if (response.status === 301) {
+      const canonicalSlugs = payload?.errors?.flatMap((error) => error?.context?.availableOn || []).map((item) => item?.slug).filter(Boolean) || [];
+      canonicalSlugs.forEach((candidate) => canonical.add(candidate));
+      slugs.push(...canonicalSlugs);
+      continue;
+    }
+    if (response.status === 404) continue;
     if (!response.ok) throw new Error(`Metacritic 页面请求失败（${response.status}）`);
     const item = payload?.data?.item;
     if (!item) continue;
     const referenceTitle = rawgMatch?.name || game.title;
-    if (!chooseMatch([{ ...item, name: item.title }], referenceTitle)) continue;
+    if (!canonical.has(slug) && !chooseMatch([{ ...item, name: item.title }], referenceTitle)) continue;
     const score = validScore(item?.criticScoreSummary?.score);
     if (score !== null) {
       return { score, scoreUrl: `https://www.metacritic.com/game/${encodeURIComponent(item.slug || slug)}/` };
