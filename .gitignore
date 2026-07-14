@@ -1,0 +1,7 @@
+node_modules/
+data/*.db
+data/*.db-*
+data/.credential-key
+data/credentials.enc
+data/credentials.enc.tmp
+.DS_Store

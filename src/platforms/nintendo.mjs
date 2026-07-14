@@ -1,0 +1,186 @@
+import { createHash, randomBytes } from "node:crypto";
+import { addUserAgent } from "nxapi";
+import MoonApi from "nxapi/moon";
+
+addUserAgent("game-time-vault/0.1.0 (personal local app)");
+
+export const NINTENDO_CLIENT_ID = "54789befb391a838";
+export const NINTENDO_REDIRECT_URI = `npf${NINTENDO_CLIENT_ID}://auth`;
+// Nintendo Moon 会拒绝旧版客户端。Android 2.4.0 的官方内部版本为 660。
+export const NINTENDO_APP_VERSION = "2.4.0";
+export const NINTENDO_APP_BUILD = "660";
+const NINTENDO_SCOPE = [
+  "openid",
+  "user",
+  "user.mii",
+  "moonUser:administration",
+  "moonDevice:create",
+  "moonOwnedDevice:administration",
+  "moonParentalControlSetting",
+  "moonParentalControlSetting:update",
+  "moonParentalControlSettingState",
+  "moonPairingState",
+  "moonSmartDevice:administration",
+  "moonDailySummary",
+  "moonMonthlySummary"
+].join(" ");
+
+function secondsToMinutes(value) {
+  return Math.max(0, Math.round(Number(value || 0) / 60));
+}
+
+function updateMetadata(target, title, deviceLabel) {
+  if (title?.title) target.title = String(title.title).trim();
+  const imageUri = title?.imageUri;
+  const coverUrl = typeof imageUri === "string"
+    ? imageUri
+    : imageUri?.extraLarge || imageUri?.large || imageUri?.medium || imageUri?.small || imageUri?.extraSmall;
+  if (coverUrl) target.coverUrl = String(coverUrl);
+  if (title?.shopUri) target.storeUrl = String(title.shopUri);
+  if (deviceLabel) target.devices.add(deviceLabel);
+}
+
+export function aggregateNintendoGames(deviceReports) {
+  const games = new Map();
+  const getGame = (applicationId) => {
+    const key = String(applicationId || "").trim();
+    if (!key) return null;
+    if (!games.has(key)) games.set(key, { applicationId: key, title: `Nintendo 游戏 ${key}`, coverUrl: null, storeUrl: null, seconds: 0, lastPlayed: null, devices: new Set() });
+    return games.get(key);
+  };
+
+  for (const report of deviceReports) {
+    const monthlyMonths = new Set();
+    for (const monthly of report.monthly || []) {
+      if (!monthly?.month) continue;
+      monthlyMonths.add(String(monthly.month).slice(0, 7));
+      const titles = new Map((monthly.playedApps || []).map((title) => [String(title.applicationId), title]));
+      for (const ranking of monthly.insights?.rankings?.byTime || []) {
+        const game = getGame(ranking.applicationId);
+        if (!game) continue;
+        game.seconds += Math.max(0, Number(ranking.units || 0));
+        updateMetadata(game, titles.get(game.applicationId), report.label);
+      }
+    }
+
+    for (const daily of report.daily || []) {
+      const date = String(daily?.date || "").slice(0, 10);
+      if (monthlyMonths.has(date.slice(0, 7))) continue;
+      const titles = new Map((daily.playedApps || []).map((title) => [String(title.applicationId), title]));
+      const players = [...(daily.devicePlayers || []), ...(daily.anonymousPlayer ? [daily.anonymousPlayer] : [])];
+      let hadPerTitleTime = false;
+      for (const player of players) {
+        for (const played of player.playedApps || []) {
+          const game = getGame(played.applicationId);
+          if (!game) continue;
+          hadPerTitleTime = true;
+          game.seconds += Math.max(0, Number(played.playingTime || 0));
+          if (date && (!game.lastPlayed || date > game.lastPlayed)) game.lastPlayed = date;
+          updateMetadata(game, titles.get(game.applicationId), report.label);
+        }
+      }
+
+      // 少数日报不会返回玩家维度；只有单款游戏时才可安全归属整日时长。
+      if (!hadPerTitleTime && titles.size === 1) {
+        const [applicationId, title] = titles.entries().next().value;
+        const game = getGame(applicationId);
+        game.seconds += Math.max(0, Number(daily.playingTime || 0));
+        if (date && (!game.lastPlayed || date > game.lastPlayed)) game.lastPlayed = date;
+        updateMetadata(game, title, report.label);
+      }
+    }
+  }
+
+  return [...games.values()].map((game) => ({
+    platform: "nintendo",
+    externalId: game.applicationId,
+    title: game.title,
+    coverUrl: game.coverUrl,
+    storeUrl: game.storeUrl || `https://www.nintendo.com/us/search/#q=${encodeURIComponent(game.title)}`,
+    minutes: secondsToMinutes(game.seconds),
+    lastPlayed: game.lastPlayed,
+    notes: `Nintendo 家长监护${game.devices.size ? ` · ${[...game.devices].join(", ")}` : ""}`
+  }));
+}
+
+async function exchangeSessionToken(fetchFn, code, verifier) {
+  const response = await fetchFn("https://accounts.nintendo.com/connect/1.0.0/api/session_token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Platform": "Android",
+      "X-ProductVersion": "2.0.0",
+      "User-Agent": "NASDKAPI; Android"
+    },
+    body: new URLSearchParams({
+      client_id: NINTENDO_CLIENT_ID,
+      session_token_code: code,
+      session_token_code_verifier: verifier
+    }).toString()
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload.session_token) throw new Error(payload.error_description || payload.detail || `Nintendo 会话交换失败（${response.status}）`);
+  return payload.session_token;
+}
+
+export function createNintendoConnector({ fetchFn = fetch, moonApi = MoonApi } = {}) {
+  return {
+    authorizationStart() {
+      const state = randomBytes(36).toString("base64url");
+      const verifier = randomBytes(32).toString("base64url");
+      const challenge = createHash("sha256").update(verifier).digest("base64url");
+      const params = new URLSearchParams({
+        state,
+        redirect_uri: NINTENDO_REDIRECT_URI,
+        client_id: NINTENDO_CLIENT_ID,
+        scope: NINTENDO_SCOPE,
+        response_type: "session_token_code",
+        session_token_code_challenge: challenge,
+        session_token_code_challenge_method: "S256"
+      });
+      return { state, verifier, authorizationUrl: `https://accounts.nintendo.com/connect/1.0.0/authorize?${params}` };
+    },
+
+    async complete(callbackUrl, pending) {
+      let url;
+      try { url = new URL(String(callbackUrl || "").trim()); } catch { throw new Error("Nintendo 回跳链接格式无效"); }
+      if (url.protocol !== `npf${NINTENDO_CLIENT_ID}:`) throw new Error("这不是 Nintendo 家长监护授权链接");
+      const params = new URLSearchParams(url.hash.slice(1));
+      if (params.get("state") !== pending.state) throw new Error("Nintendo 授权状态不匹配，请重新开始连接");
+      const code = params.get("session_token_code");
+      if (!code) throw new Error("回跳链接中没有 session_token_code");
+      return exchangeSessionToken(fetchFn, code, pending.verifier);
+    },
+
+    async fetchGames(sessionToken) {
+      const { moon, data } = await moonApi.createWithSessionToken(sessionToken);
+      moon.znma_version = NINTENDO_APP_VERSION;
+      moon.znma_build = NINTENDO_APP_BUILD;
+      moon.znma_useragent = `moon_ANDROID/${NINTENDO_APP_VERSION} (com.nintendo.znma; build:${NINTENDO_APP_BUILD}; ANDROID 26)`;
+      const devices = await moon.getDevices();
+      if (!devices?.items?.length) throw new Error("Nintendo 账号尚未在家长监护 App 中绑定主机");
+      const reports = [];
+      const failures = [];
+      for (const device of devices.items) {
+        let daily = { items: [] };
+        let monthlyIndex = { indexes: [], items: [] };
+        try { daily = await moon.getDailySummaries(device.deviceId); }
+        catch (error) { failures.push({ deviceId: device.deviceId, section: "daily", error }); }
+        try { monthlyIndex = await moon.getMonthlySummaries(device.deviceId); }
+        catch (error) { failures.push({ deviceId: device.deviceId, section: "monthly", error }); }
+        const months = [...new Set([...(monthlyIndex?.indexes || []), ...(monthlyIndex?.items || []).map((item) => item.month)].filter(Boolean))];
+        const monthly = [];
+        for (const month of months) {
+          try { monthly.push(await moon.getMonthlySummary(device.deviceId, month)); }
+          catch (error) { failures.push({ deviceId: device.deviceId, section: month, error }); }
+        }
+        reports.push({ label: device.label || device.deviceId, daily: daily?.items || [], monthly });
+      }
+      const games = aggregateNintendoGames(reports);
+      if (!games.length && failures.length >= devices.items.length * 2) {
+        throw new Error("Nintendo 的所有主机记录暂时都无法读取，请先在官方家长监护 App 中确认游玩记录可见");
+      }
+      return { games, nickname: data?.user?.nickname || null, deviceCount: devices.items.length, skippedSections: failures.length };
+    }
+  };
+}

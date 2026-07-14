@@ -1,0 +1,24 @@
+{
+  "name": "game-time-vault",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch server.mjs",
+    "start": "node server.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0",
+    "multer": "^2.0.2",
+    "nxapi": "^1.6.1-next.254",
+    "psn-api": "^2.18.0"
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}

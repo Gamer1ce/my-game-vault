@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>游戏时光库</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="hero">
+    <nav><span class="brand">PLAYLOG // NIGHT CITY ARCHIVE</span><button class="ghost" id="importButton">导入官方数据</button></nav>
+    <div class="hero-copy">
+      <p class="eyebrow">/// CROSS-PLATFORM TELEMETRY</p>
+      <h1>每一段游戏时间，<br><em>都值得被记住。</em></h1>
+      <p>接入 Xbox、PlayStation、Nintendo 与 Steam 官方数据，把累计时长转化为你的个人游戏档案。</p>
+      <a class="primary hero-action" href="#connections">接入数据源 <span>↘</span></a>
+    </div>
+    <div class="hero-code" aria-hidden="true">SYS.2077<br>PLAY_TIME<br>ONLINE</div>
+    <div class="orb"></div><div class="scanline"></div>
+  </header>
+
+  <main>
+    <section class="stats" id="stats"></section>
+    <section class="activity-section" id="activitySection">
+      <div class="section-heading">
+        <div><p class="eyebrow">DAILY ACTIVITY MATRIX</p><h2>游戏活动日历</h2><p class="section-note">颜色越亮代表程序检测到的新增时长越长；描边日期是平台提供的历史“最后游玩”记录。点击日期查看明细。</p></div>
+        <div class="calendar-controls"><button class="calendar-toggle" id="toggleCalendar" type="button">隐藏日历</button><div class="month-nav"><button id="prevMonth" aria-label="上个月">←</button><strong id="activityMonth"></strong><button id="nextMonth" aria-label="下个月">→</button></div></div>
+      </div>
+      <div id="calendarBody">
+        <div class="calendar-weekdays" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
+        <div class="calendar" id="activityCalendar"></div>
+        <div class="heat-legend"><span>少</span><i class="heat-0"></i><i class="heat-1"></i><i class="heat-2"></i><i class="heat-3"></i><i class="heat-4"></i><span>多</span></div>
+      </div>
+    </section>
+    <section class="toolbar">
+      <div class="tabs" id="tabs">
+        <button class="active" data-platform="all">全部</button>
+        <button data-platform="xbox">Xbox</button>
+        <button data-platform="playstation">PlayStation</button>
+        <button data-platform="nintendo">Nintendo</button>
+        <button data-platform="steam">Steam</button>
+      </div>
+      <input id="search" type="search" placeholder="搜索游戏…">
+    </section>
+    <section class="games" id="games"></section>
+    <p class="score-attribution hidden" id="scoreAttribution">MC 评分优先由 <a href="https://rawg.io/" target="_blank" rel="noopener noreferrer">RAWG</a> 提供，缺失时从 <a href="https://www.metacritic.com/game/" target="_blank" rel="noopener noreferrer">Metacritic</a> 公开游戏页补全。</p>
+    <section class="empty hidden" id="empty"><span>✦</span><h2>还没有官方游戏记录</h2><p>连接游戏平台，或者导入平台提供的数据文件。</p></section>
+    <section class="providers" id="connections">
+      <div><p class="eyebrow">DATA CONNECTIONS</p><h2>数据来源</h2></div>
+      <div id="providerList" class="provider-list"></div>
+    </section>
+  </main>
+
+  <dialog id="importDialog">
+    <form id="importForm">
+      <div class="dialog-head"><div><p class="eyebrow">OFFICIAL EXPORT</p><h2>导入平台数据</h2></div><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="hint">支持 PlayStation 数据副本和通用的 XLSX、CSV、JSON。至少需要游戏名称与时长列；程序不会读取或保存账号密码。</p>
+      <label>默认平台<select name="platform" required><option value="playstation">PlayStation</option><option value="xbox">Xbox</option><option value="nintendo">Nintendo</option><option value="steam">Steam</option></select></label>
+      <label class="dropzone">选择数据文件<input name="file" type="file" accept=".xlsx,.csv,.json" required><span>最大 10 MB · XLSX / CSV / JSON</span></label>
+      <p class="form-error" id="importError"></p>
+      <button class="primary wide" type="submit">开始导入</button>
+    </form>
+  </dialog>
+
+  <dialog id="connectDialog">
+    <form id="connectForm">
+      <div class="dialog-head"><div><p class="eyebrow">SECURE CONNECTION</p><h2 id="connectTitle">连接平台</h2></div><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <input type="hidden" name="provider">
+      <div id="connectInstructions"></div>
+      <div id="connectFields"></div>
+      <p class="form-error" id="connectError"></p>
+      <button class="primary wide" type="submit">连接并同步</button>
+    </form>
+  </dialog>
+
+  <dialog id="activityDialog">
+    <div class="activity-dialog-body">
+      <div class="dialog-head"><div><p class="eyebrow">DAILY BREAKDOWN</p><h2 id="activityDialogTitle">每日明细</h2></div><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <div id="activityDetails"></div>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
