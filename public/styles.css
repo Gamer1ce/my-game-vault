@@ -506,6 +506,7 @@ main {
   letter-spacing: .12em;
 }
 .section-note { max-width: 700px; margin: 0; color: var(--muted); line-height: 1.65; }
+.section-note cite { margin-left: .55em; color: #68717c; font-style: normal; white-space: nowrap; }
 .calendar-controls { display: flex; align-items: center; gap: 16px; }
 .calendar-toggle { color: var(--yellow); border-color: #5a5320; font-size: 12px; }
 .month-nav { display: flex; align-items: center; gap: 12px; }
