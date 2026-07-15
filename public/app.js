@@ -191,8 +191,10 @@ function openActivity(date) {
 }
 
 $("#importButton").addEventListener("click", () => { $("#importForm").reset(); $("#importError").textContent = ""; $("#importDialog").showModal(); });
+$("#prevYear").addEventListener("click", () => shiftMonth(-12));
 $("#prevMonth").addEventListener("click", () => shiftMonth(-1));
 $("#nextMonth").addEventListener("click", () => shiftMonth(1));
+$("#nextYear").addEventListener("click", () => shiftMonth(12));
 $("#toggleCalendar").addEventListener("click", () => {
   state.calendarHidden = !state.calendarHidden;
   localStorage.setItem("playlog-calendar-hidden", String(state.calendarHidden));
@@ -278,7 +280,7 @@ $("#providerList").addEventListener("click", async (event) => {
   if (button.classList.contains("connect-provider")) return openConnection(provider);
   if (button.classList.contains("sync-provider")) {
     button.disabled = true; button.textContent = "同步中…";
-    try { const result = await api(`/api/connections/${provider}/sync`, { method:"POST" }); await Promise.all([load(), loadConnections(), loadActivity()]); toast(provider === "rawg" ? `已检查 ${result.checked} 款，匹配 ${result.synced} 个 MC 评分` : `已同步 ${result.synced} 款游戏`); } catch (error) { toast(error.message); await loadConnections(); }
+    try { const result = await api(`/api/connections/${provider}/sync`, { method:"POST" }); await Promise.all([load(), loadConnections(), loadActivity()]); toast(provider === "rawg" ? `已检查 ${result.checked} 款，匹配 ${result.synced} 个 MC 评分` : provider === "nintendo" && result.historyBackfilled ? `已同步 ${result.synced} 款游戏，回填 ${result.historyBackfilled} 款历史` : `已同步 ${result.synced} 款游戏`); } catch (error) { toast(error.message); await loadConnections(); }
   }
   if (button.classList.contains("disconnect-provider") && confirm(`断开 ${provider === "rawg" ? "MC 评分" : platformNames[provider]}？已同步记录会保留。`)) {
     await api(`/api/connections/${provider}`, { method:"DELETE" }); await loadConnections(); toast("平台已断开");
@@ -298,7 +300,7 @@ $("#connectForm").addEventListener("submit", async (event) => {
       const url = provider === "nintendo" ? "/api/connections/nintendo/complete" : `/api/connections/${provider}`;
       const body = provider === "nintendo" ? { callbackUrl:data.callbackUrl } : data;
       const result = await api(url, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
-      $("#connectDialog").close(); await Promise.all([load(), loadConnections(), loadActivity()]); toast(provider === "rawg" ? `连接成功，已匹配 ${result.synced} 个 MC 评分` : `连接成功，已同步 ${result.synced} 款游戏`);
+      $("#connectDialog").close(); await Promise.all([load(), loadConnections(), loadActivity()]); toast(provider === "rawg" ? `连接成功，已匹配 ${result.synced} 个 MC 评分` : provider === "nintendo" && result.historyBackfilled ? `连接成功，已同步 ${result.synced} 款并回填 ${result.historyBackfilled} 款历史` : `连接成功，已同步 ${result.synced} 款游戏`);
     }
   } catch (error) { $("#connectError").textContent = error.message; } finally {
     button.disabled = false;

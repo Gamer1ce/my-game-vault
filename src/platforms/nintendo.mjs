@@ -118,6 +118,8 @@ export function normalizeNintendoPlayActivity(payload) {
     storeUrl: `https://www.nintendo.com/us/search/#q=${encodeURIComponent(game.titleName || "")}`,
     minutes: Math.max(0, Math.round(Number(game.totalPlayedMinutes || 0))),
     lastPlayed: game.lastPlayedAt ? String(game.lastPlayedAt).slice(0, 10) : null,
+    historyRevision: [game.lastUpdatedAt, game.lastPlayedAt, game.totalPlayedDays, game.totalPlayedMinutes].map((value) => String(value ?? "")).join("|"),
+    totalPlayedDays: Math.max(0, Math.round(Number(game.totalPlayedDays || 0))),
     notes: `Nintendo 游戏记录${game.totalPlayedDays ? ` · 游玩 ${Number(game.totalPlayedDays)} 天` : ""}`
   })).filter((game) => game.externalId && game.title);
   const metadata = new Map(games.map((game) => [game.externalId, game]));
@@ -143,6 +145,18 @@ export function normalizeNintendoPlayActivity(payload) {
   return { games, activity };
 }
 
+export function normalizeNintendoTitleActivity(payload, game) {
+  if (!game?.externalId || !Array.isArray(payload?.playedDays)) return [];
+  return payload.playedDays.map((day) => ({
+    date: String(day?.playedDate || "").slice(0, 10),
+    externalId: game.externalId,
+    title: game.title,
+    minutes: Math.max(0, Math.round(Number(day?.minutesPlayed || 0))),
+    coverUrl: game.coverUrl || null,
+    storeUrl: game.storeUrl || null
+  })).filter((item) => /^\d{4}-\d{2}-\d{2}$/.test(item.date) && item.minutes > 0);
+}
+
 async function exchangeSessionToken(fetchFn, code, verifier, clientId) {
   const response = await fetchFn("https://accounts.nintendo.com/connect/1.0.0/api/session_token", {
     method: "POST",
@@ -163,7 +177,7 @@ async function exchangeSessionToken(fetchFn, code, verifier, clientId) {
   return payload.session_token;
 }
 
-async function fetchPlayActivity(fetchFn, sessionToken) {
+async function fetchPlayActivity(fetchFn, sessionToken, { historyState = new Map() } = {}) {
   const tokenResponse = await fetchFn("https://accounts.nintendo.com/connect/1.0.0/api/token", {
     method: "POST",
     headers: {
@@ -193,7 +207,63 @@ async function fetchPlayActivity(fetchFn, sessionToken) {
     const detail = payload.detail || payload.error_description || payload.message;
     throw new Error(detail ? `Nintendo 游戏记录读取失败（${historyResponse.status}${apiCode}）：${detail}` : `Nintendo 游戏记录读取失败（${historyResponse.status}${apiCode}）`);
   }
-  return { ...normalizeNintendoPlayActivity(payload), nickname: null, deviceCount: 0, skippedSections: 0, mode: "play-activity" };
+  const normalized = normalizeNintendoPlayActivity(payload);
+  const activity = new Map(normalized.activity.map((item) => [`${item.date}:${item.externalId}`, item]));
+  const pending = normalized.games.filter((game) => game.totalPlayedDays > 0 && historyState.get(game.externalId) !== game.historyRevision);
+  const historySync = [];
+  const historyErrors = [];
+  let cursor = 0;
+
+  async function historyWorker() {
+    while (cursor < pending.length) {
+      const game = pending[cursor++];
+      try {
+        const pageLimit = 500;
+        let offset = 0;
+        let received = 0;
+        for (let page = 0; page < 20; page += 1) {
+          const url = new URL(`${NINTENDO_PLAY_ACTIVITY_URL}/game_titles/${encodeURIComponent(game.externalId)}`);
+          url.searchParams.set("offset", String(offset));
+          url.searchParams.set("limit", String(pageLimit));
+          const response = await fetchFn(url, {
+            headers: {
+              Authorization: `${token.token_type || "Bearer"} ${token.access_token}`,
+              Accept: "application/json",
+              "User-Agent": NINTENDO_PLAY_ACTIVITY_USER_AGENT,
+              "gentry-locale": "en-US"
+            }
+          });
+          const detail = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(detail.detail || detail.message || `HTTP ${response.status}`);
+          const rows = normalizeNintendoTitleActivity(detail, game);
+          for (const item of rows) activity.set(`${item.date}:${item.externalId}`, item);
+          const returned = Array.isArray(detail.playedDays) ? detail.playedDays.length : 0;
+          received += returned;
+          if (!returned || returned < pageLimit || received >= game.totalPlayedDays) break;
+          const baseOffset = Number.isFinite(Number(detail.playedDaysOffset)) ? Number(detail.playedDaysOffset) : offset;
+          const nextOffset = baseOffset + returned;
+          if (nextOffset <= offset) break;
+          offset = nextOffset;
+        }
+        historySync.push({ titleId: game.externalId, revision: game.historyRevision, totalPlayedDays: game.totalPlayedDays });
+      } catch (error) {
+        historyErrors.push({ titleId: game.externalId, message: error.message || "读取失败" });
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(3, pending.length) }, () => historyWorker()));
+  return {
+    games: normalized.games,
+    activity: [...activity.values()],
+    historySync,
+    historyErrors,
+    historyBackfilled: historySync.length,
+    nickname: null,
+    deviceCount: 0,
+    skippedSections: historyErrors.length,
+    mode: "play-activity"
+  };
 }
 
 export function createNintendoConnector({ fetchFn = fetch, moonApi = MoonApi } = {}) {
@@ -229,8 +299,8 @@ export function createNintendoConnector({ fetchFn = fetch, moonApi = MoonApi } =
       return exchangeSessionToken(fetchFn, code, pending.verifier, clientId);
     },
 
-    async fetchGames(sessionToken, mode = "parental") {
-      if (mode === "play-activity") return fetchPlayActivity(fetchFn, sessionToken);
+    async fetchGames(sessionToken, mode = "parental", options = {}) {
+      if (mode === "play-activity") return fetchPlayActivity(fetchFn, sessionToken, options);
       const { moon, data } = await moonApi.createWithSessionToken(sessionToken);
       moon.znma_version = NINTENDO_APP_VERSION;
       moon.znma_build = NINTENDO_APP_BUILD;

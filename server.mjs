@@ -110,6 +110,12 @@ db.exec(`
     completed_games INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS nintendo_history_state (
+    title_id TEXT PRIMARY KEY,
+    revision TEXT NOT NULL,
+    total_played_days INTEGER NOT NULL DEFAULT 0,
+    synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 const gamesTableSql = String(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'games'").get()?.sql || "");
@@ -329,6 +335,16 @@ const upsertPlatformStats = db.prepare(`
     completed_games = excluded.completed_games,
     updated_at = CURRENT_TIMESTAMP
 `);
+const listNintendoHistoryState = db.prepare("SELECT title_id AS titleId, revision FROM nintendo_history_state");
+const clearNintendoHistoryState = db.prepare("DELETE FROM nintendo_history_state");
+const upsertNintendoHistoryState = db.prepare(`
+  INSERT INTO nintendo_history_state(title_id, revision, total_played_days, synced_at)
+  VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+  ON CONFLICT(title_id) DO UPDATE SET
+    revision = excluded.revision,
+    total_played_days = excluded.total_played_days,
+    synced_at = CURRENT_TIMESTAMP
+`);
 
 function dashboardStats() {
   const base = db.prepare(`
@@ -452,13 +468,17 @@ async function syncNintendo() {
   let connection = credentials.get("nintendo");
   if (!connection || connection.pending) throw new Error("Nintendo 尚未连接");
   try {
-    const result = await nintendo.fetchGames(connection.sessionToken, connection.mode || "parental");
+    const historyState = new Map(listNintendoHistoryState.all().map((row) => [String(row.titleId), String(row.revision)]));
+    const result = await nintendo.fetchGames(connection.sessionToken, connection.mode || "parental", { historyState });
     saveSyncedGames(result.games, "nintendo-sync");
-    if (result.activity?.length) {
+    if (result.activity?.length || result.historySync?.length) {
       db.exec("BEGIN IMMEDIATE");
       try {
         for (const item of result.activity) {
           setDailyActivity.run(item.date, "nintendo", item.externalId, item.externalId, item.title, item.minutes, item.coverUrl || null, item.storeUrl || null);
+        }
+        for (const item of result.historySync || []) {
+          upsertNintendoHistoryState.run(item.titleId, item.revision, item.totalPlayedDays);
         }
         db.exec("COMMIT");
       } catch (error) {
@@ -471,11 +491,11 @@ async function syncNintendo() {
       nickname: result.nickname || connection.nickname || null,
       deviceCount: result.deviceCount,
       lastSyncAt: new Date().toISOString(),
-      lastError: null,
+      lastError: result.historyErrors?.length ? `${result.historyErrors.length} 款 Nintendo 历史记录本次未能回填，将在下次同步重试` : null,
       itemCount: result.games.length
     };
     credentials.set("nintendo", connection);
-    return { synced: result.games.length, connection: publicConnection("nintendo") };
+    return { synced: result.games.length, historyBackfilled: Number(result.historyBackfilled || 0), connection: publicConnection("nintendo") };
   } catch (error) {
     credentials.set("nintendo", { ...connection, lastError: error.message || "同步失败" });
     throw error;
@@ -647,6 +667,7 @@ app.post("/api/connections/nintendo/complete", async (req, res, next) => {
       lastError: null,
       itemCount: 0
     });
+    clearNintendoHistoryState.run();
     credentials.delete("nintendo-pending");
     res.json(await syncNintendo());
   } catch (error) {
@@ -666,6 +687,7 @@ app.post("/api/connections/nintendo/sync", async (_req, res, next) => {
 app.delete("/api/connections/nintendo", (_req, res) => {
   credentials.delete("nintendo");
   credentials.delete("nintendo-pending");
+  clearNintendoHistoryState.run();
   res.status(204).end();
 });
 
