@@ -2,7 +2,8 @@ import express from "express";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -15,17 +16,44 @@ import { createSteamConnector } from "./src/platforms/steam.mjs";
 import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
 import { cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "./src/activity.mjs";
+import { isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-mkdirSync(path.join(root, "data"), { recursive: true });
-const db = new DatabaseSync(path.join(root, "data", "games.db"));
-const credentials = new CredentialStore(path.join(root, "data"));
+const dataDir = path.join(root, "data");
+mkdirSync(dataDir, { recursive: true });
+const db = new DatabaseSync(path.join(dataDir, "games.db"));
+const credentials = new CredentialStore(dataDir);
 const playstation = createPlaystationConnector();
 const xbox = createXboxConnector();
 const nintendo = createNintendoConnector();
 const steam = createSteamConnector();
 const metacritic = createMetacriticConnector();
 const port = Number(process.env.PORT || 4173);
+const publicMode = process.env.PUBLIC_MODE === "1" || existsSync(path.join(dataDir, "public-mode"));
+
+function adminAccess() {
+  if (!publicMode) return null;
+  const envPassword = String(process.env.ADMIN_PASSWORD || "").trim();
+  const envUsername = String(process.env.ADMIN_USERNAME || "admin").trim();
+  if (envPassword) {
+    if (envUsername.length < 1 || envUsername.length > 64 || envPassword.length < 16 || envPassword.length > 512) {
+      throw new Error("ADMIN_USERNAME 或 ADMIN_PASSWORD 格式无效；密码至少需要 16 位");
+    }
+    return { username: envUsername, password: envPassword, source: "environment" };
+  }
+  const accessPath = path.join(dataDir, "admin-access.json");
+  if (existsSync(accessPath)) {
+    const saved = JSON.parse(readFileSync(accessPath, "utf8"));
+    if (saved.username && saved.password) return { ...saved, source: "file" };
+    throw new Error(`管理凭据文件格式无效：${accessPath}`);
+  }
+
+  const created = { username: "admin", password: randomBytes(18).toString("base64url") };
+  writeFileSync(accessPath, `${JSON.stringify(created, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  return created;
+}
+
+const admin = adminAccess();
 db.exec(`
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS games (
@@ -125,7 +153,86 @@ if (!activityColumns.includes("store_url")) db.exec("ALTER TABLE daily_activity 
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
+const adminSessions = new Map();
+const loginAttempts = new Map();
+const sessionLifetime = 8 * 60 * 60 * 1000;
+const loginWindow = 15 * 60 * 1000;
+const loginLimit = 8;
+
+function adminAuthenticated(req) {
+  if (!admin) return true;
+  const token = parseCookies(req.get("cookie")).mgv_admin;
+  const expiresAt = token ? adminSessions.get(token) : null;
+  if (!expiresAt || expiresAt <= Date.now()) {
+    if (token) adminSessions.delete(token);
+    return false;
+  }
+  return true;
+}
+
+function sameOrigin(req) {
+  return isSameOriginWrite({
+    origin: req.get("origin"),
+    host: req.get("host"),
+    protocol: req.protocol,
+    fetchSite: req.get("sec-fetch-site")
+  });
+}
+
+function setSecurityHeaders(_req, res, next) {
+  res.set({
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' https: data:; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+  });
+  if (_req.path.startsWith("/api/")) res.set("Cache-Control", "no-store");
+  next();
+}
+
+app.use(setSecurityHeaders);
 app.use(express.json({ limit: "1mb" }));
+app.get("/api/security", (req, res) => res.json({ publicMode, canManage: adminAuthenticated(req) }));
+
+app.post("/api/admin/session", (req, res) => {
+  if (!admin) return res.json({ publicMode, canManage: true });
+  if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站管理请求" });
+  const key = req.ip || req.socket.remoteAddress || "unknown";
+  const recent = (loginAttempts.get(key) || []).filter((time) => time > Date.now() - loginWindow);
+  if (recent.length >= loginLimit) {
+    res.set("Retry-After", String(Math.ceil((recent[0] + loginWindow - Date.now()) / 1000)));
+    return res.status(429).json({ error: "登录尝试过多，请 15 分钟后再试" });
+  }
+  const username = String(req.body?.username || "");
+  const password = String(req.body?.password || "");
+  if (!safeEqual(username, admin.username) || !safeEqual(password, admin.password)) {
+    recent.push(Date.now());
+    loginAttempts.set(key, recent);
+    return res.status(401).json({ error: "管理员账号或密码不正确" });
+  }
+  loginAttempts.delete(key);
+  const token = randomBytes(32).toString("base64url");
+  adminSessions.set(token, Date.now() + sessionLifetime);
+  const secure = req.secure ? "; Secure" : "";
+  res.set("Set-Cookie", `mgv_admin=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionLifetime / 1000}${secure}`);
+  return res.json({ publicMode, canManage: true });
+});
+
+app.use((req, res, next) => {
+  if (!admin || !req.path.startsWith("/api/") || ["GET", "HEAD", "OPTIONS"].includes(req.method) || (req.method === "POST" && req.path === "/api/admin/session")) return next();
+  if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站管理请求" });
+  if (!adminAuthenticated(req)) return res.status(401).json({ error: "需要先解锁管理员模式" });
+  next();
+});
+
+app.delete("/api/admin/session", (req, res) => {
+  const token = parseCookies(req.get("cookie")).mgv_admin;
+  if (token) adminSessions.delete(token);
+  res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+  res.status(204).end();
+});
 app.use(express.static(path.join(root, "public")));
 
 const listGames = db.prepare(`
@@ -425,8 +532,12 @@ app.get("/api/activity", (req, res) => {
 
 app.get("/api/providers", (_req, res) => res.json({ providers }));
 
-app.get("/api/connections", (_req, res) => res.json({
-  connections: ["playstation", "xbox", "nintendo", "steam", "rawg"].map(publicConnection)
+app.get("/api/connections", (req, res) => res.json({
+  connections: ["playstation", "xbox", "nintendo", "steam", "rawg"].map((provider) => {
+    const connection = publicConnection(provider);
+    if (!adminAuthenticated(req)) connection.lastError = null;
+    return connection;
+  })
 }));
 
 app.post("/api/connections/playstation", async (req, res, next) => {
@@ -647,7 +758,10 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: error.message || "服务器错误" });
 });
 
-app.listen(port, () => console.log(`游戏时长记录已启动：http://localhost:${port}`));
+app.listen(port, () => {
+  console.log(`游戏时长记录已启动：http://localhost:${port}`);
+  if (admin) console.log(`公网只读保护已启用；管理凭据来源：${admin.source === "environment" ? "环境变量" : path.join(dataDir, "admin-access.json")}`);
+});
 
 const automaticSync = setInterval(() => {
   if (credentials.get("playstation")) syncPlaystation().catch((error) => console.error("PlayStation 自动同步失败：", error.message));

@@ -1,12 +1,24 @@
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const state = { games: [], stats: null, platform: "all", query: "", providers: [], connections: [], calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const state = { games: [], stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
 const formatTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60).toLocaleString()}<span>小时 ${minutes % 60 ? `${minutes % 60} 分` : ""}</span>`;
 const formatPlainTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时${minutes % 60 ? ` ${minutes % 60} 分钟` : ""}`;
-const api = async (url, options) => { const response = await fetch(url, options); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "请求失败"); } return response.status === 204 ? null : response.json(); };
+const api = async (url, options = {}) => { const response = await fetch(url, { credentials:"same-origin", ...options }); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "请求失败"); } return response.status === 204 ? null : response.json(); };
+
+function renderSecurity() {
+  $("#importButton").classList.toggle("hidden", !state.security.canManage);
+  $("#adminButton").classList.toggle("hidden", !state.security.publicMode);
+  $("#adminButton").textContent = state.security.canManage ? "退出管理" : "管理员登录";
+  renderProviders();
+}
+
+async function loadSecurity() {
+  state.security = await api("/api/security");
+  renderSecurity();
+}
 
 function platformIcon(platform) {
   const paths = {
@@ -201,10 +213,13 @@ function renderProviders() {
   $("#providerList").innerHTML = state.providers.map((provider) => {
     const connection = state.connections.find((item) => item.provider === provider.id) || { connected:false };
     const canConnect = Object.keys(platformNames).includes(provider.id) || provider.id === "rawg";
+    const actions = state.security.canManage
+      ? (connection.connected ? `<button class="small-button sync-provider">立即同步</button><button class="small-button danger disconnect-provider">断开</button>` : `<button class="small-button connect-provider" ${canConnect ? "" : "disabled"}>${canConnect ? "连接" : "即将支持"}</button>`)
+      : `<span class="visitor-note">只读展示</span>`;
     return `<div class="provider" data-provider="${provider.id}"><strong>${provider.name}</strong>
       <span class="status ${connection.connected ? "connected" : ""}">${connection.connected ? "已连接" : provider.status}</span>
       <p>${provider.detail}${connection.mode ? `<span class="connection-meta">连接方式：${connection.mode === "play-activity" ? "账号游戏记录" : "家长监护"}</span>` : ""}${connection.lastSyncAt ? `<span class="connection-meta">最后同步：${new Date(connection.lastSyncAt).toLocaleString()} · ${connection.itemCount} 款</span>` : ""}${connection.lastError ? `<span class="connection-meta error-meta">错误：${escapeHtml(connection.lastError)}</span>` : ""}</p>
-      <div class="provider-actions">${connection.connected ? `<button class="small-button sync-provider">立即同步</button><button class="small-button danger disconnect-provider">断开</button>` : `<button class="small-button connect-provider" ${canConnect ? "" : "disabled"}>${canConnect ? "连接" : "即将支持"}</button>`}</div></div>`;
+      <div class="provider-actions">${actions}</div></div>`;
   }).join("");
 }
 
@@ -276,4 +291,36 @@ $("#connectForm").addEventListener("submit", async (event) => {
   }
 });
 
-Promise.all([load(), loadConnections(), loadActivity()]).catch((error) => toast(error.message));
+$("#adminButton").addEventListener("click", async () => {
+  if (state.security.canManage) {
+    try {
+      await api("/api/admin/session", { method:"DELETE" });
+      await Promise.all([loadSecurity(), loadConnections()]);
+      toast("已退出管理模式");
+    } catch (error) { toast(error.message); }
+    return;
+  }
+  $("#adminForm").reset();
+  $("#adminForm").elements.username.value = "admin";
+  $("#adminError").textContent = "";
+  $("#adminDialog").showModal();
+});
+
+$("#adminForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type=submit]");
+  button.disabled = true;
+  try {
+    const body = Object.fromEntries(new FormData(form));
+    state.security = await api("/api/admin/session", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    form.reset();
+    $("#adminDialog").close();
+    await loadConnections();
+    renderSecurity();
+    toast("管理模式已解锁");
+  } catch (error) { $("#adminError").textContent = error.message; }
+  finally { button.disabled = false; }
+});
+
+loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity()])).catch((error) => toast(error.message));

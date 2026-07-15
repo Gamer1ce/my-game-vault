@@ -12,7 +12,7 @@
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
   <header class="hero">
-    <nav><span class="brand"><b>MY</b> GAME VAULT</span><button class="ghost" id="importButton">导入官方数据</button></nav>
+    <nav><span class="brand"><b>MY</b> GAME VAULT</span><div class="nav-actions"><button class="ghost hidden" id="importButton">导入官方数据</button><button class="ghost hidden" id="adminButton">管理员登录</button></div></nav>
     <div class="hero-copy">
       <span class="hero-kicker">/// PERSONAL PLAYTIME DATABASE</span>
       <h1 data-text="我的游戏档案" aria-label="我的游戏档案">我的游戏档案</h1>
@@ -73,6 +73,17 @@
       <div id="connectFields"></div>
       <p class="form-error" id="connectError"></p>
       <button class="primary wide" type="submit">连接并同步</button>
+    </form>
+  </dialog>
+
+  <dialog id="adminDialog">
+    <form id="adminForm">
+      <div class="dialog-head"><h2>解锁管理模式</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="hint">访客只能查看游戏档案。登录后才能导入文件、连接平台、同步或断开数据源。</p>
+      <label>管理员账号<input name="username" autocomplete="username" required maxlength="64" value="admin"></label>
+      <label>管理员密码<input name="password" type="password" autocomplete="current-password" required minlength="16" maxlength="512"></label>
+      <p class="form-error" id="adminError"></p>
+      <button class="primary wide" type="submit">解锁 8 小时</button>
     </form>
   </dialog>
 

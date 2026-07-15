@@ -4,4 +4,6 @@ data/*.db-*
 data/.credential-key
 data/credentials.enc
 data/credentials.enc.tmp
+data/admin-access.json
+data/public-mode
 .DS_Store

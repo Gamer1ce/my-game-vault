@@ -89,6 +89,7 @@ nav {
   position: relative;
   z-index: 2;
 }
+.nav-actions { display: flex; gap: 8px; }
 .brand {
   color: #080a0c;
   font-family: "Rajdhani", "Arial Narrow", sans-serif;
@@ -520,6 +521,7 @@ main {
 .status { width: max-content; padding: 3px 0; color: #858c96; font-size: 11px; font-weight: 800; }
 .status.connected { color: var(--yellow); }
 .provider-actions { display: flex; gap: 7px; justify-content: flex-end; }
+.visitor-note { color: #737b86; font-family: "Rajdhani", ui-monospace, monospace; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .small-button { padding: 7px 10px; font-size: 11px; }
 .small-button.danger { color: #f08aa0; border-color: #6c3542; }
 .connection-meta { display: block; margin-top: 6px; color: #737b86; font-size: 11px; }
