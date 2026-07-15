@@ -75,7 +75,7 @@ npm test
 3. 在“选择此人”页面不要直接点击按钮；长按或右键复制按钮链接。
 4. 把以 `npf5c38e31cd085304b://auth` 开头的完整链接粘贴回程序。
 
-该模式按[这篇接口分析](https://blog.siriyang.cn/posts/20230130130150id.html)及其现行开源实现 [`switch_tracker`](https://github.com/pengchzn/switch_tracker) 接入 Nintendo Store/News App 使用的游戏记录接口，可读取账号累计时长和最近七天的逐日记录，不需要家长监护。
+授权流程参考了[这篇接口分析](https://blog.siriyang.cn/posts/20230130130150id.html)。本项目适配 Nintendo Store 3.x 当前使用的游戏记录接口，可读取账号累计时长和最近逐日记录，不需要家长监护；当前接口结构也可在 [`nscard`](https://github.com/ChengChung/nscard) 与 [`vm0`](https://github.com/vm0-ai/vm0) 的开源实现中核对。
 
 如果账号或地区无法使用游戏记录模式，可切换到“家长监护”模式：先在 Nintendo Switch Parental Controls 手机 App 中绑定主机，授权时复制以 `npf54789befb391a838://auth` 开头的回跳链接。该模式通过 [`nxapi`](https://github.com/samuelthomas2774/nxapi) 读取家长监护日报与月报。
 

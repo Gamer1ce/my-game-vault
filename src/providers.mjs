@@ -20,7 +20,7 @@ export const providers = [
     name: "Nintendo",
     mode: "play-activity-or-parental-controls",
     status: "可连接",
-    detail: "推荐使用 Nintendo 账号游戏记录读取累计时长和最近七天明细，无需家长监护；也保留家长监护日报/月报模式。"
+    detail: "推荐使用 Nintendo Store 3.x 游戏记录接口读取累计时长和最近每日明细，无需家长监护；也保留家长监护日报/月报模式。"
   },
   {
     id: "steam",
