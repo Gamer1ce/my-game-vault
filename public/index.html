@@ -15,12 +15,12 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260715-7">
+  <link rel="stylesheet" href="/styles.css?v=20260715-8">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
   <header class="hero">
-    <nav><span class="brand"><b>MY</b> GAME VAULT</span><div class="nav-actions"><button class="ghost hidden" id="importButton">导入官方数据</button><button class="ghost hidden" id="adminButton">管理员登录</button></div></nav>
+    <nav><span class="brand"><b>MY</b> GAME VAULT</span><div class="nav-actions"><a class="ghost nav-highlight" href="#highlights">精彩时刻</a><button class="ghost hidden" id="importButton">导入官方数据</button><button class="ghost hidden" id="adminButton">管理员登录</button></div></nav>
     <div class="hero-copy">
       <span class="hero-kicker">/// Gamer1ce // CROSS-PLATFORM ARCHIVE</span>
       <h1 data-text="我的游戏生涯" aria-label="我的游戏生涯">我的游戏生涯</h1>
@@ -49,6 +49,14 @@
 
   <main>
     <section class="stats" id="stats"></section>
+    <section class="highlights-section" id="highlights">
+      <div class="section-heading">
+        <div><h2 data-text="精彩时刻" aria-label="精彩时刻">精彩时刻</h2><p class="section-note">从存档里截取几帧高光。点击图片或视频，进入完整画面。</p></div>
+        <span class="highlight-count" id="highlightCount">MEDIA // 00</span>
+      </div>
+      <div class="highlight-grid" id="highlightGrid"></div>
+      <div class="highlight-empty hidden" id="highlightEmpty"><strong>信号尚未接入</strong><p>把游戏截图或视频放进 <code>data/highlights</code>，刷新页面后便会出现在这里。</p></div>
+    </section>
     <section class="activity-section" id="activitySection">
       <div class="section-heading">
         <div><h2 data-text="游戏活动日历" aria-label="游戏活动日历">游戏活动日历</h2><p class="section-note">确切分钟来自平台逐日记录；“约”表示两次同步间的累计差值；描边日期只能确认最近玩过。点击日期查看明细。</p></div>
@@ -120,7 +128,14 @@
     </div>
   </dialog>
 
+  <dialog class="highlight-dialog" id="highlightDialog">
+    <div class="highlight-dialog-body">
+      <div class="dialog-head"><h2 id="highlightDialogTitle">精彩时刻</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="highlight-viewer" id="highlightViewer"></div>
+    </div>
+  </dialog>
+
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=20260715-7"></script>
+  <script type="module" src="/app.js?v=20260715-8"></script>
 </body>
 </html>

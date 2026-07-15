@@ -17,10 +17,13 @@ import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
 import { activityDate, cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "./src/activity.mjs";
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
+import { listHighlights, supportedHighlightFormats } from "./src/highlights.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
 mkdirSync(dataDir, { recursive: true });
+const highlightsDir = path.join(dataDir, "highlights");
+mkdirSync(highlightsDir, { recursive: true });
 const db = new DatabaseSync(path.join(dataDir, "games.db"));
 const credentials = new CredentialStore(dataDir);
 const playstation = createPlaystationConnector();
@@ -197,7 +200,7 @@ function adminTransportAllowed(req) {
 
 function setSecurityHeaders(_req, res, next) {
   res.set({
-    "Content-Security-Policy": "default-src 'self'; img-src 'self' https: data:; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "Content-Security-Policy": "default-src 'self'; img-src 'self' https: data:; media-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -256,6 +259,21 @@ app.delete("/api/admin/session", (req, res) => {
   res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
   res.status(204).end();
 });
+app.use("/media/highlights", (req, res, next) => {
+  if (!supportedHighlightFormats.includes(path.extname(req.path).toLowerCase())) return res.status(404).end();
+  next();
+}, express.static(highlightsDir, {
+  dotfiles: "deny",
+  index: false,
+  redirect: false,
+  maxAge: "5m",
+  setHeaders(res) {
+    res.set({
+      "Content-Disposition": "inline",
+      "Cross-Origin-Resource-Policy": "same-origin"
+    });
+  }
+}));
 app.use(express.static(path.join(root, "public")));
 
 const listGames = db.prepare(`
@@ -551,6 +569,11 @@ async function syncMetacritic() {
 }
 
 app.get("/api/games", (_req, res) => res.json({ games: listGames.all(), stats: dashboardStats() }));
+
+app.get("/api/highlights", (_req, res) => {
+  const highlights = listHighlights(highlightsDir);
+  res.json({ highlights, total: highlights.length });
+});
 
 app.get("/api/activity", (req, res) => {
   const month = String(req.query.month || shanghaiDate().slice(0, 7));

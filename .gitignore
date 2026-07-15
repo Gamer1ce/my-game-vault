@@ -6,4 +6,6 @@ data/credentials.enc
 data/credentials.enc.tmp
 data/admin-access.json
 data/public-mode
+data/backups/
+data/highlights/
 .DS_Store

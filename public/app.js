@@ -1,6 +1,6 @@
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const state = { games: [], stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const state = { games: [], highlights: [], stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -152,6 +152,48 @@ function render() {
 async function load() { const result = await api("/api/games"); state.games = result.games; state.stats = result.stats || null; render(); }
 function toast(message) { const el = $("#toast"); el.textContent = message; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2800); }
 
+function safeHighlightUrl(value) {
+  return typeof value === "string" && value.startsWith("/media/highlights/") ? value : null;
+}
+
+function formatFileSize(bytes) {
+  const size = Math.max(0, Number(bytes || 0));
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / 1024 / 1024).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function renderHighlights() {
+  $("#highlightCount").textContent = `MEDIA // ${String(state.highlights.length).padStart(2, "0")}`;
+  $("#highlightGrid").innerHTML = state.highlights.map((item, index) => {
+    const url = safeHighlightUrl(item.url);
+    if (!url) return "";
+    const title = escapeHtml(item.title || item.filename || "精彩时刻");
+    const date = item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "日期未知";
+    const media = item.type === "video"
+      ? `<video src="${escapeHtml(url)}" preload="metadata" muted playsinline aria-label="${title}"></video><span class="highlight-play" aria-hidden="true">▶</span>`
+      : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
+    return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${index}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)}</small></span></button></article>`;
+  }).join("");
+  $("#highlightEmpty").classList.toggle("hidden", state.highlights.length > 0);
+}
+
+async function loadHighlights() {
+  const result = await api("/api/highlights");
+  state.highlights = Array.isArray(result.highlights) ? result.highlights : [];
+  renderHighlights();
+}
+
+function openHighlight(index) {
+  const item = state.highlights[index];
+  const url = safeHighlightUrl(item?.url);
+  if (!item || !url) return;
+  $("#highlightDialogTitle").textContent = item.title || item.filename || "精彩时刻";
+  $("#highlightViewer").innerHTML = item.type === "video"
+    ? `<video src="${escapeHtml(url)}" controls autoplay playsinline></video>`
+    : `<img src="${escapeHtml(url)}" alt="${escapeHtml(item.title || item.filename || "精彩时刻")}">`;
+  $("#highlightDialog").showModal();
+}
+
 function calendarLevel(total, max) {
   if (!total) return 0;
   return Math.max(1, Math.min(4, Math.ceil((total / Math.max(max, 1)) * 4)));
@@ -229,6 +271,8 @@ $("#toggleCalendar").addEventListener("click", () => {
   renderActivity();
 });
 $("#activityCalendar").addEventListener("click", (event) => { const button = event.target.closest("button[data-date]"); if (button) openActivity(button.dataset.date); });
+$("#highlightGrid").addEventListener("click", (event) => { const button = event.target.closest("button[data-highlight-index]"); if (button) openHighlight(Number(button.dataset.highlightIndex)); });
+$("#highlightDialog").addEventListener("close", () => { const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
 $("#tabs").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#tabs .active").classList.remove("active"); button.classList.add("active"); state.platform = button.dataset.platform; render(); });
 $("#search").addEventListener("input", (event) => { state.query = event.target.value.trim().toLowerCase(); render(); });
 
@@ -369,4 +413,4 @@ $("#adminForm").addEventListener("submit", async (event) => {
   finally { button.disabled = false; }
 });
 
-loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity()])).catch((error) => toast(error.message));
+loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights()])).catch((error) => toast(error.message));
