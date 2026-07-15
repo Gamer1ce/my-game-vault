@@ -15,7 +15,7 @@ import { createNintendoConnector } from "./src/platforms/nintendo.mjs";
 import { createSteamConnector } from "./src/platforms/steam.mjs";
 import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
-import { activityDate, cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "./src/activity.mjs";
+import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, shanghaiDate } from "./src/activity.mjs";
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
 
@@ -583,6 +583,24 @@ app.get("/api/highlights", (_req, res) => {
   try { available = statSync(storage.directory).isDirectory(); } catch { available = false; }
   const highlights = available ? listHighlights(storage.directory) : [];
   res.json({ highlights, total: highlights.length, available, customDirectory: storage.custom });
+});
+
+app.get("/api/activity/recent", (_req, res) => {
+  const dates = recentDateRange(14);
+  const rows = db.prepare(`
+    SELECT date, platform, precision, SUM(minutes) AS minutes
+    FROM daily_activity
+    WHERE date >= ? AND date <= ? AND minutes > 0
+    GROUP BY date, platform, precision
+    ORDER BY date, platform
+  `).all(dates[0], dates.at(-1));
+  const days = groupRecentActivity(dates, rows);
+  res.json({
+    startDate: dates[0],
+    endDate: dates.at(-1),
+    totalMinutes: days.reduce((sum, day) => sum + day.totalMinutes, 0),
+    days
+  });
 });
 
 app.get("/api/activity", (req, res) => {

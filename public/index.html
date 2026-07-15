@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260715-8">
+  <link rel="stylesheet" href="/styles.css?v=20260715-11">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
@@ -49,6 +49,14 @@
 
   <main>
     <section class="stats" id="stats"></section>
+    <section class="recent-activity" id="recentActivity">
+      <div class="section-heading recent-heading">
+        <div><h2 data-text="最近两周" aria-label="最近两周">最近两周</h2><p class="section-note">每天一列，颜色代表游戏平台；“≈”表示两次同步之间检测到的累计时长变化。</p></div>
+        <div class="recent-total"><small>14 天合计</small><strong id="recentTotal">—</strong></div>
+      </div>
+      <div class="recent-chart-shell"><div class="recent-chart" id="recentChart" aria-label="最近 14 天游戏时长图"></div></div>
+      <div class="recent-legend" id="recentLegend"></div>
+    </section>
     <section class="highlights-section" id="highlights">
       <div class="section-heading">
         <div><h2 data-text="精彩时刻" aria-label="精彩时刻">精彩时刻</h2><p class="section-note">从存档里截取几帧高光。点击图片或视频，进入完整画面。</p></div>
@@ -86,7 +94,10 @@
       <div><h2 data-text="数据来源" aria-label="数据来源">数据来源</h2><p class="section-note">连接信息只保存在本机。每个平台提供的数据范围不同。</p></div>
       <div id="providerList" class="provider-list"></div>
     </section>
+    <div class="page-end"><span>ARCHIVE // END OF LINE</span><button class="back-top-footer" id="backToTopFooter" type="button">一键回到顶部 ↑</button></div>
   </main>
+
+  <button class="quick-top" id="quickTopButton" type="button" aria-label="快速回到顶部" aria-hidden="true" tabindex="-1"><span>↑</span> 顶部</button>
 
   <dialog id="importDialog">
     <form id="importForm">
@@ -136,6 +147,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=20260715-9"></script>
+  <script type="module" src="/app.js?v=20260715-11"></script>
 </body>
 </html>

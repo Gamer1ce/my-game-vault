@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activityDate, cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "../src/activity.mjs";
+import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, shanghaiDate } from "../src/activity.mjs";
 
 test("累计时长只记录正向增量且首次同步仅建立基线", () => {
   assert.equal(cumulativeDelta(null, 600), 0);
@@ -45,4 +45,27 @@ test("同一游戏同一天优先保留确切逐日记录", () => {
   assert.equal(day.games[0].precision, "exact");
   assert.equal(day.totalMinutes, 40);
   assert.equal(day.historicalCount, 0);
+});
+
+test("近两周日期跨月连续且包含结束日期", () => {
+  const dates = recentDateRange(14, "2026-01-05");
+  assert.equal(dates.length, 14);
+  assert.equal(dates[0], "2025-12-23");
+  assert.equal(dates.at(-1), "2026-01-05");
+});
+
+test("近两周活动按日期与平台汇总并保留精度", () => {
+  const days = groupRecentActivity(["2026-07-14", "2026-07-15"], [
+    { date: "2026-07-14", platform: "nintendo", minutes: 45, precision: "exact" },
+    { date: "2026-07-14", platform: "steam", minutes: 30, precision: "detected" },
+    { date: "2026-07-15", platform: "xbox", minutes: 20, precision: "detected" }
+  ]);
+  assert.deepEqual(days[0], {
+    date: "2026-07-14",
+    totalMinutes: 75,
+    exactMinutes: 45,
+    detectedMinutes: 30,
+    platforms: { xbox: 0, playstation: 0, nintendo: 45, steam: 30 }
+  });
+  assert.equal(days[1].platforms.xbox, 20);
 });

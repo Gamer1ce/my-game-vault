@@ -16,6 +16,39 @@ export function monthEnd(month) {
   return new Date(Date.UTC(year, monthNumber, 1)).toISOString().slice(0, 10);
 }
 
+export function recentDateRange(dayCount = 14, endDate = shanghaiDate()) {
+  const count = Math.max(1, Math.min(90, Math.trunc(Number(dayCount) || 14)));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(endDate)) throw new Error("结束日期格式无效");
+  const end = new Date(`${endDate}T00:00:00Z`);
+  if (Number.isNaN(end.getTime())) throw new Error("结束日期无效");
+  return Array.from({ length: count }, (_, index) => {
+    const date = new Date(end);
+    date.setUTCDate(end.getUTCDate() - count + index + 1);
+    return date.toISOString().slice(0, 10);
+  });
+}
+
+export function groupRecentActivity(dates, rows) {
+  const platforms = ["xbox", "playstation", "nintendo", "steam"];
+  const byDate = new Map(dates.map((date) => [date, {
+    date,
+    totalMinutes: 0,
+    exactMinutes: 0,
+    detectedMinutes: 0,
+    platforms: Object.fromEntries(platforms.map((platform) => [platform, 0]))
+  }]));
+  for (const row of rows) {
+    const day = byDate.get(row.date);
+    if (!day || !platforms.includes(row.platform)) continue;
+    const minutes = Math.max(0, Number(row.minutes || 0));
+    day.totalMinutes += minutes;
+    day.platforms[row.platform] += minutes;
+    if (row.precision === "exact") day.exactMinutes += minutes;
+    else if (row.precision === "detected") day.detectedMinutes += minutes;
+  }
+  return [...byDate.values()];
+}
+
 export function activityDate(lastPlayed, fallback = shanghaiDate()) {
   const value = String(lastPlayed || "");
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && value <= fallback ? value : fallback;

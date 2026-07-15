@@ -1,6 +1,6 @@
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const state = { games: [], highlights: [], highlightStorage: { available: true, customDirectory: false }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const state = { games: [], highlights: [], highlightStorage: { available: true, customDirectory: false }, recentActivity: { days: [], totalMinutes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -151,6 +151,43 @@ function render() {
 
 async function load() { const result = await api("/api/games"); state.games = result.games; state.stats = result.stats || null; render(); }
 function toast(message) { const el = $("#toast"); el.textContent = message; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2800); }
+
+function compactTime(minutes) {
+  const value = Math.max(0, Number(minutes || 0));
+  if (value < 60) return `${value}m`;
+  const hours = Math.floor(value / 60);
+  return `${hours}h${value % 60 ? `${value % 60}m` : ""}`;
+}
+
+function renderRecentActivity() {
+  const days = state.recentActivity.days || [];
+  const maximum = Math.max(1, ...days.map((day) => Number(day.totalMinutes || 0)));
+  const platformOrder = ["xbox", "playstation", "nintendo", "steam"];
+  $("#recentTotal").textContent = formatPlainTime(Number(state.recentActivity.totalMinutes || 0));
+  $("#recentChart").innerHTML = days.map((day, index) => {
+    const total = Math.max(0, Number(day.totalMinutes || 0));
+    const approximate = Number(day.detectedMinutes || 0) > 0;
+    const [year, month, date] = day.date.split("-").map(Number);
+    const weekday = "日一二三四五六"[new Date(Date.UTC(year, month - 1, date)).getUTCDay()];
+    let segmentTop = 100;
+    const segments = platformOrder.map((platform) => {
+      const minutes = Math.max(0, Number(day.platforms?.[platform] || 0));
+      if (!minutes) return "";
+      const height = (minutes / maximum) * 100;
+      segmentTop -= height;
+      return `<rect class="recent-${platform}" x="0" y="${Math.max(0, segmentTop).toFixed(3)}" width="100" height="${height.toFixed(3)}"><title>${platformNames[platform]} ${formatPlainTime(minutes)}</title></rect>`;
+    }).join("");
+    const detail = total ? `${approximate ? "约 " : ""}${formatPlainTime(total)}` : "没有时长记录";
+    return `<div class="recent-day${index === days.length - 1 ? " is-today" : ""}" aria-label="${day.date}，${detail}"><span class="recent-day-total">${total ? `${approximate ? "≈" : ""}${compactTime(total)}` : "—"}</span><div class="recent-bar-track"><svg class="recent-bar-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${segments}</svg></div><span class="recent-date"><b>${String(month).padStart(2, "0")}.${String(date).padStart(2, "0")}</b><small>周${weekday}</small></span></div>`;
+  }).join("");
+  $("#recentLegend").innerHTML = platformOrder.map((platform) => `<span class="recent-legend-item recent-${platform}">${platformIcon(platform)}${platformNames[platform]}</span>`).join("");
+  requestAnimationFrame(() => { const shell = $(".recent-chart-shell"); shell.scrollLeft = shell.scrollWidth; });
+}
+
+async function loadRecentActivity() {
+  state.recentActivity = await api("/api/activity/recent");
+  renderRecentActivity();
+}
 
 function safeHighlightUrl(value) {
   return typeof value === "string" && value.startsWith("/media/highlights/") ? value : null;
@@ -309,7 +346,7 @@ document.addEventListener("click", (event) => {
 
 $("#importForm").addEventListener("submit", async (event) => {
   event.preventDefault(); const form = event.currentTarget; const button = form.querySelector("button[type=submit]"); button.disabled = true; button.textContent = "正在导入…";
-  try { const result = await api("/api/import", { method:"POST", body:new FormData(form) }); $("#importDialog").close(); await Promise.all([load(), loadActivity()]); toast(`已导入 ${result.imported} 条，跳过 ${result.skipped} 条`); } catch (error) { $("#importError").textContent = error.message; } finally { button.disabled = false; button.textContent = "开始导入"; }
+  try { const result = await api("/api/import", { method:"POST", body:new FormData(form) }); $("#importDialog").close(); await Promise.all([load(), loadActivity(), loadRecentActivity()]); toast(`已导入 ${result.imported} 条，跳过 ${result.skipped} 条`); } catch (error) { $("#importError").textContent = error.message; } finally { button.disabled = false; button.textContent = "开始导入"; }
 });
 
 function renderProviders() {
@@ -365,7 +402,7 @@ $("#providerList").addEventListener("click", async (event) => {
   if (button.classList.contains("connect-provider")) return openConnection(provider);
   if (button.classList.contains("sync-provider")) {
     button.disabled = true; button.textContent = "同步中…";
-    try { const result = await api(`/api/connections/${provider}/sync`, { method:"POST" }); await Promise.all([load(), loadConnections(), loadActivity()]); toast(provider === "rawg" ? `已检查 ${result.checked} 款，匹配 ${result.synced} 个 MC 评分` : provider === "nintendo" && result.historyBackfilled ? `已同步 ${result.synced} 款游戏，回填 ${result.historyBackfilled} 款历史` : `已同步 ${result.synced} 款游戏`); } catch (error) { toast(error.message); await loadConnections(); }
+    try { const result = await api(`/api/connections/${provider}/sync`, { method:"POST" }); await Promise.all([load(), loadConnections(), loadActivity(), loadRecentActivity()]); toast(provider === "rawg" ? `已检查 ${result.checked} 款，匹配 ${result.synced} 个 MC 评分` : provider === "nintendo" && result.historyBackfilled ? `已同步 ${result.synced} 款游戏，回填 ${result.historyBackfilled} 款历史` : `已同步 ${result.synced} 款游戏`); } catch (error) { toast(error.message); await loadConnections(); }
   }
   if (button.classList.contains("disconnect-provider") && confirm(`断开 ${provider === "rawg" ? "MC 评分" : platformNames[provider]}？已同步记录会保留。`)) {
     await api(`/api/connections/${provider}`, { method:"DELETE" }); await loadConnections(); toast("平台已断开");
@@ -385,7 +422,7 @@ $("#connectForm").addEventListener("submit", async (event) => {
       const url = provider === "nintendo" ? "/api/connections/nintendo/complete" : `/api/connections/${provider}`;
       const body = provider === "nintendo" ? { callbackUrl:data.callbackUrl } : data;
       const result = await api(url, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
-      $("#connectDialog").close(); await Promise.all([load(), loadConnections(), loadActivity()]); toast(provider === "rawg" ? `连接成功，已匹配 ${result.synced} 个 MC 评分` : provider === "nintendo" && result.historyBackfilled ? `连接成功，已同步 ${result.synced} 款并回填 ${result.historyBackfilled} 款历史` : `连接成功，已同步 ${result.synced} 款游戏`);
+      $("#connectDialog").close(); await Promise.all([load(), loadConnections(), loadActivity(), loadRecentActivity()]); toast(provider === "rawg" ? `连接成功，已匹配 ${result.synced} 个 MC 评分` : provider === "nintendo" && result.historyBackfilled ? `连接成功，已同步 ${result.synced} 款并回填 ${result.historyBackfilled} 款历史` : `连接成功，已同步 ${result.synced} 款游戏`);
     }
   } catch (error) { $("#connectError").textContent = error.message; } finally {
     button.disabled = false;
@@ -426,4 +463,49 @@ $("#adminForm").addEventListener("submit", async (event) => {
   finally { button.disabled = false; }
 });
 
-loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights()])).catch((error) => toast(error.message));
+const quickTopButton = $("#quickTopButton");
+let quickTopTimer;
+let scrollWindowStartY = window.scrollY;
+let scrollWindowStartAt = performance.now();
+let ignoreFastScrollUntil = 0;
+
+function hideQuickTop() {
+  quickTopButton.classList.remove("is-visible");
+  quickTopButton.setAttribute("aria-hidden", "true");
+  quickTopButton.tabIndex = -1;
+}
+
+function showQuickTop() {
+  quickTopButton.classList.add("is-visible");
+  quickTopButton.setAttribute("aria-hidden", "false");
+  quickTopButton.tabIndex = 0;
+  clearTimeout(quickTopTimer);
+  quickTopTimer = setTimeout(hideQuickTop, 6000);
+}
+
+function returnToTop() {
+  ignoreFastScrollUntil = performance.now() + 1200;
+  hideQuickTop();
+  window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+
+$("#backToTopFooter").addEventListener("click", returnToTop);
+quickTopButton.addEventListener("click", returnToTop);
+window.addEventListener("scroll", () => {
+  const time = performance.now();
+  const position = window.scrollY;
+  if (position < 420) hideQuickTop();
+  if (time < ignoreFastScrollUntil) return;
+  if (position < scrollWindowStartY || time - scrollWindowStartAt > 220) {
+    scrollWindowStartY = position;
+    scrollWindowStartAt = time;
+    return;
+  }
+  if (position > 700 && position - scrollWindowStartY > 420) {
+    showQuickTop();
+    scrollWindowStartY = position;
+    scrollWindowStartAt = time;
+  }
+}, { passive: true });
+
+loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights(), loadRecentActivity()])).catch((error) => toast(error.message));
