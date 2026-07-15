@@ -4,23 +4,29 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>游戏时光库</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <div class="signal-overlay" aria-hidden="true"></div>
   <header class="hero">
-    <nav><span class="brand">MY GAME VAULT</span><button class="ghost" id="importButton">导入官方数据</button></nav>
+    <nav><span class="brand"><b>MY</b> GAME VAULT</span><button class="ghost" id="importButton">导入官方数据</button></nav>
     <div class="hero-copy">
-      <h1>我的游戏档案</h1>
+      <span class="hero-kicker">/// PERSONAL PLAYTIME DATABASE</span>
+      <h1 data-text="我的游戏档案" aria-label="我的游戏档案">我的游戏档案</h1>
       <p>集中查看 Xbox、PlayStation、Nintendo 与 Steam 的累计时长、成就和每日活动。数据保存在这台电脑上。</p>
       <a class="primary hero-action" href="#connections">接入数据源</a>
     </div>
+    <div class="hero-telemetry" aria-hidden="true"><span>SYS.GAME_ARCHIVE</span><span>LOCAL_NODE // 127.0.0.1</span><span>DATA_PULSE // ACTIVE</span></div>
   </header>
 
   <main>
     <section class="stats" id="stats"></section>
     <section class="activity-section" id="activitySection">
       <div class="section-heading">
-        <div><h2>游戏活动日历</h2><p class="section-note">颜色越亮代表程序检测到的新增时长越长；描边日期是平台提供的历史“最后游玩”记录。点击日期查看明细。</p></div>
+        <div><h2 data-text="游戏活动日历" aria-label="游戏活动日历">游戏活动日历</h2><p class="section-note">颜色越亮代表程序检测到的新增时长越长；描边日期是平台提供的历史“最后游玩”记录。点击日期查看明细。</p></div>
         <div class="calendar-controls"><button class="calendar-toggle" id="toggleCalendar" type="button">隐藏日历</button><div class="month-nav"><button id="prevMonth" aria-label="上个月">←</button><strong id="activityMonth"></strong><button id="nextMonth" aria-label="下个月">→</button></div></div>
       </div>
       <div id="calendarBody">
@@ -43,7 +49,7 @@
     <p class="score-attribution hidden" id="scoreAttribution">MC 评分优先由 <a href="https://rawg.io/" target="_blank" rel="noopener noreferrer">RAWG</a> 提供，缺失时从 <a href="https://www.metacritic.com/game/" target="_blank" rel="noopener noreferrer">Metacritic</a> 公开游戏页补全。</p>
     <section class="empty hidden" id="empty"><h2>还没有官方游戏记录</h2><p>连接游戏平台，或者导入平台提供的数据文件。</p></section>
     <section class="providers" id="connections">
-      <div><h2>数据来源</h2><p class="section-note">连接信息只保存在本机。每个平台提供的数据范围不同。</p></div>
+      <div><h2 data-text="数据来源" aria-label="数据来源">数据来源</h2><p class="section-note">连接信息只保存在本机。每个平台提供的数据范围不同。</p></div>
       <div id="providerList" class="provider-list"></div>
     </section>
   </main>
