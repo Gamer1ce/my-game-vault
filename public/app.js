@@ -216,9 +216,11 @@ function renderHighlights() {
   }).join("");
   const remaining = Math.max(0, state.highlights.length - visibleCount);
   const loadMore = $("#highlightLoadMore");
+  const collapse = $("#highlightCollapse");
   loadMore.classList.toggle("hidden", remaining === 0);
   loadMore.textContent = "显示更多";
   loadMore.setAttribute("aria-label", remaining > 0 ? `显示更多精彩时刻，接下来展示 ${Math.min(HIGHLIGHT_PAGE_SIZE, remaining)} 个` : "所有精彩时刻已显示");
+  collapse.classList.toggle("hidden", visibleCount <= HIGHLIGHT_INITIAL_COUNT);
   const emptyTitle = $("#highlightEmpty strong");
   const emptyMessage = $("#highlightEmpty p");
   if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
@@ -332,6 +334,11 @@ $("#toggleCalendar").addEventListener("click", () => {
 $("#activityCalendar").addEventListener("click", (event) => { const button = event.target.closest("button[data-date]"); if (button) openActivity(button.dataset.date); });
 $("#highlightGrid").addEventListener("click", (event) => { const button = event.target.closest("button[data-highlight-index]"); if (button) openHighlight(Number(button.dataset.highlightIndex)); });
 $("#highlightLoadMore").addEventListener("click", () => { state.visibleHighlights += HIGHLIGHT_PAGE_SIZE; renderHighlights(); });
+$("#highlightCollapse").addEventListener("click", () => {
+  state.visibleHighlights = HIGHLIGHT_INITIAL_COUNT;
+  renderHighlights();
+  requestAnimationFrame(() => $("#highlights").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
+});
 $("#highlightDialog").addEventListener("close", () => { const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
 $("#tabs").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#tabs .active").classList.remove("active"); button.classList.add("active"); state.platform = button.dataset.platform; render(); });
 $("#search").addEventListener("input", (event) => { state.query = event.target.value.trim().toLowerCase(); render(); });
