@@ -125,6 +125,15 @@ export function parseOpenXblAchievements(payload) {
   return result;
 }
 
+export function parseOpenXblTitleAchievements(payload) {
+  const achievements = Array.isArray(payload?.achievements) ? payload.achievements : [];
+  const totalRecords = Number(payload?.pagingInfo?.totalRecords);
+  const total = Math.max(achievements.length, Number.isFinite(totalRecords) ? Math.round(totalRecords) : 0);
+  if (total <= 0) return null;
+  const earned = achievements.filter((item) => String(item?.progressState || "").toLowerCase() === "achieved").length;
+  return { earned, total };
+}
+
 export function normalizeOpenXblTitles(payload, statsByTitle = new Map(), achievementsByTitle = new Map()) {
   return titleList(payload)
     .filter((item) => titleIdOf(item) && (item?.name || item?.titleName || item?.title) && String(item?.type || "Game").toLowerCase() !== "app")
@@ -155,7 +164,7 @@ export function createXboxConnector({ fetchFn = fetch } = {}) {
       return parseOpenXblAccount(await openXblRequest(fetchFn, apiKey, "/account"));
     },
 
-    async fetchGames(connection) {
+    async fetchGames(connection, { knownAchievementTotals = new Map() } = {}) {
       const history = await openXblRequest(fetchFn, connection.apiKey, "/player/titleHistory");
       const titles = titleList(history);
       let achievementsByTitle = new Map();
@@ -163,6 +172,11 @@ export function createXboxConnector({ fetchFn = fetch } = {}) {
         achievementsByTitle = parseOpenXblAchievements(await openXblRequest(fetchFn, connection.apiKey, "/achievements"));
       } catch (error) {
         if (/API Key|额度/.test(error.message)) throw error;
+      }
+      for (const [titleId, total] of knownAchievementTotals) {
+        if (!(Number(total) > 0)) continue;
+        const current = achievementsByTitle.get(String(titleId));
+        achievementsByTitle.set(String(titleId), { earned: current?.earned ?? null, total: Math.round(Number(total)) });
       }
       const statsByTitle = new Map();
       for (let index = 0; index < titles.length; index += 25) {
@@ -183,6 +197,32 @@ export function createXboxConnector({ fetchFn = fetch } = {}) {
           if (/API Key|额度/.test(error.message)) throw error;
         }
       }
+
+      const missing = normalizeOpenXblTitles(history, statsByTitle, achievementsByTitle)
+        .filter((game) => game.minutes > 0 && !(Number(game.achievementsTotal) > 0));
+      let cursor = 0;
+      let stopDetails = false;
+      async function detailWorker() {
+        while (!stopDetails && cursor < missing.length) {
+          const game = missing[cursor++];
+          try {
+            const payload = await openXblRequest(fetchFn, connection.apiKey,
+              `/achievements/player/${encodeURIComponent(connection.xuid)}/${encodeURIComponent(game.externalId)}`);
+            const detail = parseOpenXblTitleAchievements(payload);
+            if (!detail) continue;
+            const current = achievementsByTitle.get(game.externalId);
+            achievementsByTitle.set(game.externalId, {
+              earned: current?.earned ?? detail.earned,
+              total: detail.total
+            });
+          } catch (error) {
+            // 单款旧游戏可能没有成就详情；免费额度耗尽时停止补全，但仍完成本次游戏同步。
+            if (/额度/.test(error.message)) stopDetails = true;
+            else if (/API Key/.test(error.message)) throw error;
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(3, missing.length) }, () => detailWorker()));
       return normalizeOpenXblTitles(history, statsByTitle, achievementsByTitle);
     }
   };

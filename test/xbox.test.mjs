@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createXboxConnector, normalizeOpenXblTitles, parseOpenXblAccount, parseOpenXblAchievements, parseOpenXblStats } from "../src/platforms/xbox.mjs";
+import { createXboxConnector, normalizeOpenXblTitles, parseOpenXblAccount, parseOpenXblAchievements, parseOpenXblStats, parseOpenXblTitleAchievements } from "../src/platforms/xbox.mjs";
 
 test("解析 OpenXBL 账号资料", () => {
   assert.deepEqual(parseOpenXblAccount({ profileUsers: [{ id: "2533", settings: [{ id: "Gamertag", value: "Player" }] }] }), { xuid: "2533", gamertag: "Player" });
@@ -19,6 +19,28 @@ test("解析 OpenXBL 每款游戏的成就进度", () => {
   ] });
   assert.deepEqual(achievements.get("123"), { earned: 40, total: 50 });
   assert.deepEqual(achievements.get("456"), { earned: 12, total: null });
+});
+
+test("从 OpenXBL 单游戏成就列表补全总数", () => {
+  assert.deepEqual(parseOpenXblTitleAchievements({
+    achievements: [{ progressState: "Achieved" }, { progressState: "InProgress" }, { progressState: "NotStarted" }],
+    pagingInfo: { totalRecords: 3 }
+  }), { earned: 1, total: 3 });
+});
+
+test("标题汇总缺少分母时读取单游戏成就列表", async () => {
+  const calls = [];
+  const connector = createXboxConnector({ fetchFn: async (url) => {
+    calls.push(url);
+    if (url.endsWith("/titleHistory")) return { ok: true, json: async () => ({ titles: [{ titleId: "1", name: "Halo", minutesPlayed: 90 }] }) };
+    if (url.endsWith("/achievements")) return { ok: true, json: async () => ({ titles: [{ titleId: "1", achievement: { currentAchievements: 2, totalAchievements: 0 } }] }) };
+    if (url.includes("/achievements/player/2533/1")) return { ok: true, json: async () => ({ achievements: [{ progressState: "Achieved" }, { progressState: "Achieved" }, { progressState: "NotStarted" }], pagingInfo: { totalRecords: 3 } }) };
+    return { ok: true, json: async () => ({}) };
+  } });
+  const games = await connector.fetchGames({ apiKey: "key", xuid: "2533" });
+  assert.equal(games[0].achievementsEarned, 2);
+  assert.equal(games[0].achievementsTotal, 3);
+  assert.ok(calls.some((url) => url.includes("/achievements/player/2533/1")));
 });
 
 test("OpenXBL 连接器验证 API Key 并请求历史和统计", async () => {

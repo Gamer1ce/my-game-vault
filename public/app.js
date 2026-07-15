@@ -111,7 +111,7 @@ function render() {
   $("#games").innerHTML = games.map((game) => `<article class="game platform-${game.platform}">
     ${posterMarkup(game)}
     <div class="game-content"><div class="game-top"><span class="badge">${platformIcon(game.platform)}<span>${platformNames[game.platform]}</span></span><span class="source">${game.source === "manual" ? "历史记录" : game.source.endsWith("-sync") ? "官方同步" : "官方文件"}</span></div>
-    <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours">${formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`).join("");
+    <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours">${formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line" title="${Number(game.achievementsTotal) > 0 ? "已解锁 / 总成就" : "OpenXBL 当前未提供该游戏的总成就数"}">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`).join("");
   const publicInstanceEmpty = state.security.publicMode && state.games.length === 0;
   $("#emptyTitle").textContent = publicInstanceEmpty ? "公网实例尚未载入游戏数据" : "还没有官方游戏记录";
   $("#emptyMessage").textContent = publicInstanceEmpty
@@ -152,7 +152,8 @@ function renderActivity() {
   const exactDays = state.activity.days.filter((day) => Number(day.exactMinutes) > 0).length;
   const detectedDays = state.activity.days.filter((day) => Number(day.detectedMinutes) > 0).length;
   const historyRows = state.activity.days.reduce((sum, day) => sum + Number(day.historicalCount || 0), 0);
-  $("#activityCoverage").textContent = `本月覆盖：平台逐日 ${exactDays} 天 · 累计差值 ${detectedDays} 天 · 最近游玩 ${historyRows} 条`;
+  const detectedCoverage = detectedDays > 0 ? `累计差值 ${detectedDays} 天` : "累计差值 0 天（尚未检测到新增累计时长）";
+  $("#activityCoverage").textContent = `本月覆盖：平台逐日 ${exactDays} 天 · ${detectedCoverage} · 最近游玩 ${historyRows} 条`;
   $("#toggleCalendar").textContent = state.calendarHidden ? "显示日历" : "隐藏日历";
   $("#toggleCalendar").setAttribute("aria-expanded", String(!state.calendarHidden));
 }

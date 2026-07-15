@@ -280,6 +280,7 @@ const upsertSyncedGame = db.prepare(`
 
 const findGameByExternalId = db.prepare("SELECT minutes FROM games WHERE platform = ? AND external_id = ?");
 const findGameByTitle = db.prepare("SELECT minutes FROM games WHERE platform = ? AND external_id IS NULL AND title = ? COLLATE NOCASE");
+const xboxAchievementTotals = db.prepare("SELECT external_id AS externalId, achievements_total AS total FROM games WHERE platform = 'xbox' AND external_id IS NOT NULL AND achievements_total > 0");
 const upsertDailyActivity = db.prepare(`
   INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, precision, cover_url, store_url)
   VALUES (?, ?, ?, ?, ?, ?, 'detected', ?, ?)
@@ -435,7 +436,8 @@ async function syncXbox() {
   let connection = credentials.get("xbox");
   if (!connection || connection.pending) throw new Error("Xbox 尚未连接");
   try {
-    const games = await xbox.fetchGames(connection);
+    const knownAchievementTotals = new Map(xboxAchievementTotals.all().map((row) => [String(row.externalId), Number(row.total)]));
+    const games = await xbox.fetchGames(connection, { knownAchievementTotals });
     saveSyncedGames(games, "xbox-sync");
     connection = { ...connection, lastSyncAt: new Date().toISOString(), lastError: null, itemCount: games.length };
     credentials.set("xbox", connection);
@@ -782,11 +784,15 @@ app.listen(port, () => {
   if (admin) console.log(`公网只读保护已启用；管理凭据来源：${admin.source === "environment" ? "环境变量" : path.join(dataDir, "admin-access.json")}`);
 });
 
-const automaticSync = setInterval(() => {
+function syncConnectedPlatforms() {
   if (credentials.get("playstation")) syncPlaystation().catch((error) => console.error("PlayStation 自动同步失败：", error.message));
   if (credentials.get("xbox")) syncXbox().catch((error) => console.error("Xbox 自动同步失败：", error.message));
   if (credentials.get("nintendo")) syncNintendo().catch((error) => console.error("Nintendo 自动同步失败：", error.message));
   if (credentials.get("steam")) syncSteam().catch((error) => console.error("Steam 自动同步失败：", error.message));
   if (credentials.get("rawg")) syncMetacritic().catch((error) => console.error("MC 评分自动同步失败：", error.message));
-}, 6 * 60 * 60 * 1000);
+}
+
+const startupSync = setTimeout(syncConnectedPlatforms, 2_000);
+startupSync.unref();
+const automaticSync = setInterval(syncConnectedPlatforms, 6 * 60 * 60 * 1000);
 automaticSync.unref();
