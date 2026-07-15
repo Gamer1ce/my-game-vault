@@ -52,27 +52,27 @@ npm test
 
 项目已配置 Web App Manifest、浏览器 favicon 和 iPhone/iPad 的 Apple Touch Icon。当前图标由项目所有者提供的 Xbox Design Lab 风格图片居中裁切而成，保留了中央粉色手柄与闪电、宝箱、草莓等元素；图标本身没有预先裁成圆角，系统会按设备样式自动生成圆角遮罩。
 
-需要换成自己的图片时，准备一张至少 `512 × 512` 的正方形 PNG，并替换下列文件：
+需要换成自己的图片时，准备一张至少 `512 × 512` 的正方形 PNG，并替换下列当前启用的版本化文件：
 
-- `public/icons/app-icon-512.png`：Android/PWA 与高清显示
-- `public/icons/app-icon-192.png`：Android/PWA 小图标
-- `public/icons/apple-touch-icon.png`：iPhone/iPad，尺寸 `180 × 180`
-- `public/icons/favicon-32.png`：浏览器标签页，尺寸 `32 × 32`
+- `public/icons/app-icon-512-v2.png`：Android/PWA 与高清显示
+- `public/icons/app-icon-192-v2.png`：Android/PWA 小图标
+- `public/icons/apple-touch-icon-v2.png`：iPhone/iPad，尺寸 `180 × 180`
+- `public/icons/favicon-32-v2.png`：浏览器标签页，尺寸 `32 × 32`
 
 也可以在 macOS 使用 `sips` 从一张正方形原图生成各尺寸：
 
 ```bash
-cp my-square-icon.png public/icons/app-icon-512.png
-sips --resampleHeightWidth 512 512 public/icons/app-icon-512.png
-cp public/icons/app-icon-512.png public/icons/app-icon-192.png
-cp public/icons/app-icon-512.png public/icons/apple-touch-icon.png
-cp public/icons/app-icon-512.png public/icons/favicon-32.png
-sips --resampleHeightWidth 192 192 public/icons/app-icon-192.png
-sips --resampleHeightWidth 180 180 public/icons/apple-touch-icon.png
-sips --resampleHeightWidth 32 32 public/icons/favicon-32.png
+cp my-square-icon.png public/icons/app-icon-512-v2.png
+sips --resampleHeightWidth 512 512 public/icons/app-icon-512-v2.png
+cp public/icons/app-icon-512-v2.png public/icons/app-icon-192-v2.png
+cp public/icons/app-icon-512-v2.png public/icons/apple-touch-icon-v2.png
+cp public/icons/app-icon-512-v2.png public/icons/favicon-32-v2.png
+sips --resampleHeightWidth 192 192 public/icons/app-icon-192-v2.png
+sips --resampleHeightWidth 180 180 public/icons/apple-touch-icon-v2.png
+sips --resampleHeightWidth 32 32 public/icons/favicon-32-v2.png
 ```
 
-iOS 会缓存已添加到主屏幕的旧图标。部署新图标后，需要删除原来的主屏幕快捷方式，再从 Safari 的“分享”→“添加到主屏幕”重新添加。当前示例图像仅用于项目所有者的个人网站；公开分发或制作派生项目时，请替换为你拥有使用权的图像。
+iOS 会按图标 URL 长期缓存已添加到主屏幕的旧图标，单纯覆盖同名文件通常不会更新。更换图片时应使用新的文件名并同步修改 `public/index.html` 和 `public/site.webmanifest`；部署后删除原来的主屏幕快捷方式，再从 Safari 的“分享”→“添加到主屏幕”重新添加。当前示例图像仅用于项目所有者的个人网站；公开分发或制作派生项目时，请替换为你拥有使用权的图像。
 
 ## 连接游戏平台
 
