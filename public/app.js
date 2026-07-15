@@ -196,6 +196,17 @@ function safeHighlightUrl(value) {
   return typeof value === "string" && value.startsWith("/media/highlights/") ? value : null;
 }
 
+function safePlaybackUrl(value) {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.origin === window.location.origin && url.pathname.startsWith("/media/highlights/")) return url.href;
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
 function formatFileSize(bytes) {
   const size = Math.max(0, Number(bytes || 0));
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
@@ -207,13 +218,14 @@ function renderHighlights() {
   const visibleCount = Math.min(state.visibleHighlights, state.highlights.length);
   $("#highlightGrid").innerHTML = state.highlights.slice(0, visibleCount).map((item, index) => {
     const url = safeHighlightUrl(item.url);
-    if (!url) return "";
+    if (!url && item.type !== "video") return "";
     const title = escapeHtml(item.title || item.filename || "精彩时刻");
     const date = item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "日期未知";
     const media = item.type === "video"
-      ? `<video src="${escapeHtml(url)}" preload="metadata" muted playsinline aria-label="${title}"></video><span class="highlight-play" aria-hidden="true">▶</span>`
+      ? `${url ? `<video src="${escapeHtml(url)}" preload="metadata" muted playsinline aria-label="${title}"></video>` : `<span class="highlight-remote-preview" aria-hidden="true">REMOTE // ORIGINAL</span>`}<span class="highlight-play" aria-hidden="true">▶</span>`
       : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
-    return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${index}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)}</small></span></button></article>`;
+    const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">云端原画</em>` : "";
+    return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${index}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
   }).join("");
   const remaining = Math.max(0, state.highlights.length - visibleCount);
   const loadMore = $("#highlightLoadMore");
@@ -241,19 +253,42 @@ async function loadHighlights() {
   const result = await api("/api/highlights");
   state.highlights = Array.isArray(result.highlights) ? result.highlights : [];
   state.visibleHighlights = HIGHLIGHT_INITIAL_COUNT;
-  state.highlightStorage = { available: result.available !== false, customDirectory: result.customDirectory === true };
+  state.highlightStorage = { available: result.available !== false, customDirectory: result.customDirectory === true, remoteEnabled: result.remoteEnabled === true, remoteCount: Number(result.remoteCount || 0) };
   renderHighlights();
 }
 
-function openHighlight(index) {
+let highlightPlaybackRequest = 0;
+async function openHighlight(index) {
   const item = state.highlights[index];
   const url = safeHighlightUrl(item?.url);
-  if (!item || !url) return;
+  if (!item || (item.type !== "video" && !url)) return;
+  const request = ++highlightPlaybackRequest;
   $("#highlightDialogTitle").textContent = item.title || item.filename || "精彩时刻";
-  $("#highlightViewer").innerHTML = item.type === "video"
-    ? `<video src="${escapeHtml(url)}" controls autoplay playsinline></video>`
-    : `<img src="${escapeHtml(url)}" alt="${escapeHtml(item.title || item.filename || "精彩时刻")}">`;
+  const viewer = $("#highlightViewer");
+  if (item.type !== "video") {
+    viewer.innerHTML = `<img src="${escapeHtml(url)}" alt="${escapeHtml(item.title || item.filename || "精彩时刻")}">`;
+    $("#highlightDialog").showModal();
+    return;
+  }
+  viewer.innerHTML = `<div class="highlight-loading"><strong>正在连接媒体节点</strong><span>校验原画播放地址…</span></div>`;
   $("#highlightDialog").showModal();
+  try {
+    const playback = await api(`/api/highlights/playback?filename=${encodeURIComponent(item.filename)}`);
+    if (request !== highlightPlaybackRequest || !$("#highlightDialog").open) return;
+    const playbackUrl = safePlaybackUrl(playback.url);
+    if (!playbackUrl) throw new Error("播放地址不安全或不可用");
+    const video = document.createElement("video");
+    video.src = playbackUrl;
+    video.controls = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    const source = document.createElement("span");
+    source.className = `highlight-playback-source ${playback.source === "remote" ? "is-remote" : "is-local"}`;
+    source.textContent = playback.source === "remote" ? "云端原画" : "本机线路";
+    viewer.replaceChildren(video, source);
+  } catch (error) {
+    if (request === highlightPlaybackRequest) viewer.innerHTML = `<div class="highlight-loading is-error"><strong>视频暂时无法播放</strong><span>${escapeHtml(error.message)}</span></div>`;
+  }
 }
 
 function calendarLevel(total, max) {
@@ -340,7 +375,7 @@ $("#highlightCollapse").addEventListener("click", () => {
   renderHighlights();
   requestAnimationFrame(() => $("#highlights").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
 });
-$("#highlightDialog").addEventListener("close", () => { const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
+$("#highlightDialog").addEventListener("close", () => { highlightPlaybackRequest += 1; const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
 $("#tabs").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#tabs .active").classList.remove("active"); button.classList.add("active"); state.platform = button.dataset.platform; render(); });
 $("#search").addEventListener("input", (event) => { state.query = event.target.value.trim().toLowerCase(); render(); });
 

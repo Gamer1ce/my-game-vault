@@ -371,6 +371,7 @@ main {
   background: #080a0d;
 }
 .highlight-media img, .highlight-media video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.highlight-remote-preview { width: 100%; height: 100%; display: grid; place-items: center; color: #6b7681; background: repeating-linear-gradient(0deg, #07090c 0 3px, #0b0e12 3px 4px); font-family: "Rajdhani", ui-monospace, monospace; font-size: 12px; font-weight: 800; letter-spacing: .13em; }
 .highlight-card:hover .highlight-media img, .highlight-card:hover .highlight-media video { animation: poster-signal .42s steps(2, end); }
 .highlight-play {
   width: 48px;
@@ -390,6 +391,7 @@ main {
 .highlight-meta { min-width: 0; display: grid; gap: 6px; padding: 15px 16px 17px; }
 .highlight-meta strong { overflow: hidden; font-size: 15px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .highlight-meta small { color: var(--muted); font-family: "Rajdhani", "Noto Sans SC", sans-serif; font-size: 11px; letter-spacing: .035em; }
+.highlight-cloud { margin-left: 5px; color: var(--cyan); font-style: normal; font-weight: 900; }
 .highlight-more-wrap { display: flex; justify-content: center; gap: 10px; margin-top: 22px; }
 .highlight-more {
   width: min(360px, 100%);
@@ -755,8 +757,14 @@ dialog form, .activity-dialog-body { padding: 28px; }
 .highlight-dialog-body { padding: 22px; }
 .highlight-dialog .dialog-head { margin-bottom: 14px; }
 .highlight-dialog .dialog-head h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.highlight-viewer { display: grid; place-items: center; min-height: 240px; background: #050608; }
+.highlight-viewer { overflow: hidden; position: relative; display: grid; place-items: center; min-height: 240px; background: #050608; }
 .highlight-viewer img, .highlight-viewer video { display: block; max-width: 100%; max-height: 72vh; object-fit: contain; }
+.highlight-loading { display: grid; gap: 7px; padding: 48px 20px; color: var(--cyan); text-align: center; }
+.highlight-loading strong { font-family: "Rajdhani", "Noto Sans SC", sans-serif; font-size: 20px; letter-spacing: .04em; }
+.highlight-loading span { color: var(--muted); font-size: 12px; }
+.highlight-loading.is-error strong { color: var(--pink); }
+.highlight-playback-source { position: absolute; right: 12px; top: 12px; padding: 7px 10px; border: 1px solid currentColor; color: var(--yellow); background: #080a0de8; font-size: 11px; font-weight: 900; pointer-events: none; }
+.highlight-playback-source.is-remote { color: var(--cyan); }
 .dialog-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 22px; }
 .dialog-head h2 { margin: 4px 0; font-size: 30px; }
 .close { width: 40px; height: 40px; flex: 0 0 auto; border: 1px solid var(--line-strong); color: var(--muted); background: transparent; font-size: 27px; line-height: 1; }

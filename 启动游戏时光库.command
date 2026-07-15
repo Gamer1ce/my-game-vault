@@ -5,6 +5,12 @@ cd "${0:A:h}"
 
 URL="http://localhost:4173"
 
+if [[ -f data/remote-media.env ]]; then
+  set -a
+  source data/remote-media.env
+  set +a
+fi
+
 if [[ -f data/highlights-path.txt ]]; then
   HIGHLIGHTS_PATH="$(head -n 1 data/highlights-path.txt)"
   if [[ -n "$HIGHLIGHTS_PATH" && ! -d "$HIGHLIGHTS_PATH" ]]; then
@@ -42,6 +48,9 @@ for _ in {1..40}; do
   if curl -fsS "$URL/api/games" >/dev/null 2>&1; then
     open "$URL"
     echo "网站已打开。保持此窗口运行即可继续自动同步；关闭窗口会停止网站。"
+    if [[ -n "${MEDIA_S3_BUCKET:-}" ]]; then
+      echo "云端原画播放已启用；朋友播放已上传视频时不会占用本机隧道带宽。"
+    fi
     wait "$SERVER_PID"
     exit $?
   fi

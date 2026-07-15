@@ -7,6 +7,9 @@ data/credentials.enc.tmp
 data/admin-access.json
 data/public-mode
 data/highlights-path.txt
+data/remote-media.env
+data/remote-media.json
+data/remote-media.json.tmp
 data/backups/
 data/highlights/
 .DS_Store

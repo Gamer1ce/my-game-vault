@@ -19,6 +19,7 @@ import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, 
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
 import { createSyncRunner } from "./src/sync-runner.mjs";
+import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
@@ -27,6 +28,7 @@ const defaultHighlightsDir = path.join(dataDir, "highlights");
 mkdirSync(defaultHighlightsDir, { recursive: true });
 const db = new DatabaseSync(path.join(dataDir, "games.db"));
 const credentials = new CredentialStore(dataDir);
+const remoteMedia = createRemoteMediaService({ dataDirectory: dataDir });
 const playstation = createPlaystationConnector();
 const xbox = createXboxConnector();
 const nintendo = createNintendoConnector();
@@ -200,8 +202,10 @@ function adminTransportAllowed(req) {
 }
 
 function setSecurityHeaders(_req, res, next) {
+  const remoteMediaSource = remoteMedia.allowedMediaSource();
+  const mediaSources = ["'self'", remoteMediaSource].filter(Boolean).join(" ");
   res.set({
-    "Content-Security-Policy": "default-src 'self'; img-src 'self' https: data:; media-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+    "Content-Security-Policy": `default-src 'self'; img-src 'self' https: data:; media-src ${mediaSources}; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -616,8 +620,37 @@ app.get("/api/highlights", (_req, res) => {
   const storage = resolveHighlightsDirectory(dataDir);
   let available = false;
   try { available = statSync(storage.directory).isDirectory(); } catch { available = false; }
-  const highlights = available ? listHighlights(storage.directory) : [];
-  res.json({ highlights, total: highlights.length, available, customDirectory: storage.custom });
+  const localHighlights = available ? listHighlights(storage.directory) : [];
+  let manifest = { files: {} };
+  try { manifest = remoteMedia.manifest(); } catch (error) { console.error(error.message); }
+  const highlights = mergeRemoteHighlights(localHighlights, manifest, { remoteEnabled: remoteMedia.isEnabled() });
+  res.json({
+    highlights,
+    total: highlights.length,
+    available,
+    customDirectory: storage.custom,
+    remoteEnabled: remoteMedia.isEnabled(),
+    remoteCount: Object.keys(manifest.files || {}).length
+  });
+});
+
+app.get("/api/highlights/playback", async (req, res) => {
+  const filename = String(req.query.filename || "");
+  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) {
+    return res.status(400).json({ error: "媒体文件名无效" });
+  }
+
+  try {
+    const remote = await remoteMedia.playback(filename);
+    if (remote) return res.json(remote);
+  } catch (error) {
+    console.error(`远程媒体播放链接生成失败：${error.message || error}`);
+  }
+
+  const storage = resolveHighlightsDirectory(dataDir);
+  const local = listHighlights(storage.directory, 5000).find((item) => item.filename === filename);
+  if (local) return res.json({ url: local.url, source: "local", expiresIn: null });
+  return res.status(404).json({ error: "视频不可用；请连接外置硬盘或重新同步云端媒体" });
 });
 
 app.get("/api/activity/recent", (_req, res) => {
