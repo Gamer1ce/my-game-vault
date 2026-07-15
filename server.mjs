@@ -2,7 +2,7 @@ import express from "express";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
@@ -17,13 +17,13 @@ import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
 import { activityDate, cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "./src/activity.mjs";
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
-import { listHighlights, supportedHighlightFormats } from "./src/highlights.mjs";
+import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
 mkdirSync(dataDir, { recursive: true });
-const highlightsDir = path.join(dataDir, "highlights");
-mkdirSync(highlightsDir, { recursive: true });
+const defaultHighlightsDir = path.join(dataDir, "highlights");
+mkdirSync(defaultHighlightsDir, { recursive: true });
 const db = new DatabaseSync(path.join(dataDir, "games.db"));
 const credentials = new CredentialStore(dataDir);
 const playstation = createPlaystationConnector();
@@ -259,21 +259,28 @@ app.delete("/api/admin/session", (req, res) => {
   res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
   res.status(204).end();
 });
-app.use("/media/highlights", (req, res, next) => {
-  if (!supportedHighlightFormats.includes(path.extname(req.path).toLowerCase())) return res.status(404).end();
-  next();
-}, express.static(highlightsDir, {
-  dotfiles: "deny",
-  index: false,
-  redirect: false,
-  maxAge: "5m",
-  setHeaders(res) {
+app.get("/media/highlights/:filename", (req, res, next) => {
+  const filename = String(req.params.filename || "");
+  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) return res.status(404).end();
+  try {
+    const { directory } = resolveHighlightsDirectory(dataDir);
+    const realDirectory = realpathSync(directory);
+    const file = path.join(realDirectory, filename);
+    const stats = lstatSync(file);
+    if (!stats.isFile() || stats.isSymbolicLink()) return res.status(404).end();
     res.set({
       "Content-Disposition": "inline",
       "Cross-Origin-Resource-Policy": "same-origin"
     });
+    return res.sendFile(filename, { root: realDirectory, dotfiles: "deny", maxAge: "5m" }, (error) => {
+      if (!error) return;
+      if (!res.headersSent) return res.status(error.statusCode || 404).end();
+      next(error);
+    });
+  } catch {
+    return res.status(404).end();
   }
-}));
+});
 app.use(express.static(path.join(root, "public")));
 
 const listGames = db.prepare(`
@@ -571,8 +578,11 @@ async function syncMetacritic() {
 app.get("/api/games", (_req, res) => res.json({ games: listGames.all(), stats: dashboardStats() }));
 
 app.get("/api/highlights", (_req, res) => {
-  const highlights = listHighlights(highlightsDir);
-  res.json({ highlights, total: highlights.length });
+  const storage = resolveHighlightsDirectory(dataDir);
+  let available = false;
+  try { available = statSync(storage.directory).isDirectory(); } catch { available = false; }
+  const highlights = available ? listHighlights(storage.directory) : [];
+  res.json({ highlights, total: highlights.length, available, customDirectory: storage.custom });
 });
 
 app.get("/api/activity", (req, res) => {

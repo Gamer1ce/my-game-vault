@@ -1,6 +1,6 @@
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const state = { games: [], highlights: [], stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const state = { games: [], highlights: [], highlightStorage: { available: true, customDirectory: false }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -174,12 +174,25 @@ function renderHighlights() {
       : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
     return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${index}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)}</small></span></button></article>`;
   }).join("");
+  const emptyTitle = $("#highlightEmpty strong");
+  const emptyMessage = $("#highlightEmpty p");
+  if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
+    emptyTitle.textContent = "外置媒体库未连接";
+    emptyMessage.textContent = "连接保存精彩时刻的外置硬盘，然后刷新页面。";
+  } else if (state.highlightStorage.customDirectory) {
+    emptyTitle.textContent = "外置媒体库已接入";
+    emptyMessage.textContent = "当前文件夹还没有受支持的游戏截图或视频。";
+  } else {
+    emptyTitle.textContent = "信号尚未接入";
+    emptyMessage.innerHTML = "把游戏截图或视频放进 <code>data/highlights</code>，刷新页面后便会出现在这里。";
+  }
   $("#highlightEmpty").classList.toggle("hidden", state.highlights.length > 0);
 }
 
 async function loadHighlights() {
   const result = await api("/api/highlights");
   state.highlights = Array.isArray(result.highlights) ? result.highlights : [];
+  state.highlightStorage = { available: result.available !== false, customDirectory: result.customDirectory === true };
   renderHighlights();
 }
 

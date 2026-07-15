@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { highlightTitle, listHighlights } from "../src/highlights.mjs";
+import { highlightTitle, listHighlights, resolveHighlightsDirectory } from "../src/highlights.mjs";
 
 test("精彩时刻只列出受支持的普通媒体文件", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "game-vault-highlights-"));
@@ -27,4 +27,27 @@ test("精彩时刻只列出受支持的普通媒体文件", () => {
 test("文件名会成为适合展示的标题", () => {
   assert.equal(highlightTitle("赛博朋克2077_精彩击杀.mp4"), "赛博朋克2077 精彩击杀");
   assert.equal(highlightTitle("Screenshot-2026-07-15.jpg"), "Screenshot-2026-07-15");
+});
+
+test("精彩时刻目录支持外置硬盘配置并以环境变量优先", () => {
+  const dataDirectory = mkdtempSync(path.join(tmpdir(), "game-vault-data-"));
+  try {
+    writeFileSync(path.join(dataDirectory, "highlights-path.txt"), "/Volumes/GameDisk/Captures\n");
+    assert.deepEqual(resolveHighlightsDirectory(dataDirectory, { environment: {}, homeDirectory: "/Users/test" }), {
+      directory: "/Volumes/GameDisk/Captures",
+      custom: true,
+      source: "file"
+    });
+    assert.deepEqual(resolveHighlightsDirectory(dataDirectory, { environment: { HIGHLIGHTS_DIR: "~/External Clips" }, homeDirectory: "/Users/test" }), {
+      directory: "/Users/test/External Clips",
+      custom: true,
+      source: "environment"
+    });
+  } finally {
+    rmSync(dataDirectory, { recursive: true, force: true });
+  }
+});
+
+test("外置目录暂时离线时返回空清单", () => {
+  assert.deepEqual(listHighlights("/Volumes/does-not-exist/game-vault"), []);
 });
