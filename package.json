@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "node --watch server.mjs",
     "start": "node server.mjs",
+    "media:sync": "node scripts/sync-remote-media.mjs",
     "test": "node --test"
   },
   "engines": {
     "node": ">=22.5"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1087.0",
+    "@aws-sdk/lib-storage": "^3.1087.0",
+    "@aws-sdk/s3-request-presigner": "^3.1087.0",
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "multer": "^2.0.2",

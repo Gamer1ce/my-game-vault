@@ -3,36 +3,82 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#fcee0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="游戏时光库">
   <title>游戏时光库</title>
+  <link rel="manifest" href="/site.webmanifest?v=20260715-5">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-v2.png">
+  <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/icons/apple-touch-icon-v2.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32-v2.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=20260716-1">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
   <header class="hero">
-    <nav><span class="brand"><b>MY</b> GAME VAULT</span><button class="ghost" id="importButton">导入官方数据</button></nav>
+    <nav><span class="brand"><b>MY</b> GAME VAULT</span><div class="nav-actions"><a class="ghost nav-highlight" href="#highlights">精彩时刻</a><button class="ghost hidden" id="importButton">导入官方数据</button><button class="ghost hidden" id="adminButton">管理员登录</button></div></nav>
     <div class="hero-copy">
-      <span class="hero-kicker">/// PERSONAL PLAYTIME DATABASE</span>
-      <h1 data-text="我的游戏档案" aria-label="我的游戏档案">我的游戏档案</h1>
-      <p>集中查看 Xbox、PlayStation、Nintendo 与 Steam 的累计时长、成就和每日活动。数据保存在这台电脑上。</p>
-      <a class="primary hero-action" href="#connections">接入数据源</a>
+      <span class="hero-kicker">/// Gamer1ce // CROSS-PLATFORM ARCHIVE</span>
+      <h1 data-text="我的游戏生涯" aria-label="我的游戏生涯">我的游戏生涯</h1>
+      <p>时间在现实中向前，也在无数个世界里留下分支。这里保存我曾抵达的地方、赢下的时刻，以及那些尚未结束的远征。</p>
+      <div class="hero-actions">
+        <a class="primary hero-action" href="#connections">查看平台档案</a>
+        <div class="friend-links" id="friendLinks" aria-label="添加我的游戏好友">
+          <span class="friend-links-label">添加游戏好友</span>
+          <a class="friend-link platform-xbox" href="https://www.xbox.com/en-US/play/user/Gamer1ce" target="_blank" rel="noopener noreferrer" aria-label="在 Xbox 添加 Gamer1ce" title="打开 Xbox 个人资料">
+            <span data-platform-icon="xbox"></span><span><strong>Xbox</strong><small>Gamer1ce</small></span>
+          </a>
+          <button class="friend-link platform-playstation" type="button" data-copy-id="frozen-forest57" aria-label="复制 PlayStation 在线 ID frozen-forest57" title="复制 PlayStation 在线 ID">
+            <span data-platform-icon="playstation"></span><span><strong>PlayStation</strong><small>frozen-forest57</small></span>
+          </button>
+          <button class="friend-link platform-nintendo" type="button" data-copy-id="SW-7590-5159-5218" aria-label="复制 Nintendo 好友代码 SW-7590-5159-5218" title="复制 Nintendo 好友代码">
+            <span data-platform-icon="nintendo"></span><span><strong>Nintendo</strong><small>SW-7590-5159-5218</small></span>
+          </button>
+          <a class="friend-link platform-steam" href="https://steamcommunity.com/profiles/76561198812881896/" target="_blank" rel="noopener noreferrer" aria-label="在 Steam 添加好友" title="打开 Steam 个人资料">
+            <span data-platform-icon="steam"></span><span><strong>Steam</strong><small>青春网瘾少年</small></span>
+          </a>
+        </div>
+      </div>
     </div>
     <div class="hero-telemetry" aria-hidden="true"><span>SYS.GAME_ARCHIVE</span><span>LOCAL_NODE // 127.0.0.1</span><span>DATA_PULSE // ACTIVE</span></div>
   </header>
 
   <main>
     <section class="stats" id="stats"></section>
+    <section class="recent-activity" id="recentActivity">
+      <div class="section-heading recent-heading">
+        <div><h2 data-text="最近两周" aria-label="最近两周">最近两周</h2><p class="section-note">“人生天地之间，若白驹之过隙，忽然而已。”<cite>——庄子《知北游》</cite></p></div>
+        <div class="recent-total"><small>14 天合计</small><strong id="recentTotal">—</strong></div>
+      </div>
+      <div class="recent-chart-shell"><div class="recent-chart" id="recentChart" aria-label="最近 14 天游戏时长图"></div></div>
+      <div class="recent-legend" id="recentLegend"></div>
+    </section>
+    <section class="highlights-section" id="highlights">
+      <div class="section-heading">
+        <div><h2 data-text="精彩时刻" aria-label="精彩时刻">精彩时刻</h2><p class="section-note">“后之览者，亦将有感于斯文。”<cite>——王羲之《兰亭集序》</cite></p></div>
+        <span class="highlight-count" id="highlightCount">MEDIA // 00</span>
+      </div>
+      <div class="highlight-grid" id="highlightGrid"></div>
+      <div class="highlight-more-wrap">
+        <button class="highlight-more hidden" id="highlightLoadMore" type="button" aria-controls="highlightGrid">显示更多</button>
+        <button class="highlight-more highlight-collapse hidden" id="highlightCollapse" type="button" aria-controls="highlightGrid">折叠</button>
+      </div>
+      <div class="highlight-empty hidden" id="highlightEmpty"><strong>信号尚未接入</strong><p>把游戏截图或视频放进 <code>data/highlights</code>，刷新页面后便会出现在这里。</p></div>
+    </section>
     <section class="activity-section" id="activitySection">
       <div class="section-heading">
-        <div><h2 data-text="游戏活动日历" aria-label="游戏活动日历">游戏活动日历</h2><p class="section-note">颜色越亮代表程序检测到的新增时长越长；描边日期是平台提供的历史“最后游玩”记录。点击日期查看明细。</p></div>
-        <div class="calendar-controls"><button class="calendar-toggle" id="toggleCalendar" type="button">隐藏日历</button><div class="month-nav"><button id="prevMonth" aria-label="上个月">←</button><strong id="activityMonth"></strong><button id="nextMonth" aria-label="下个月">→</button></div></div>
+        <div><h2 data-text="游戏活动日历" aria-label="游戏活动日历">游戏活动日历</h2><p class="section-note">“盛年不重来，一日难再晨。”<cite>——陶渊明《杂诗十二首·其一》</cite></p></div>
+        <div class="calendar-controls"><button class="calendar-toggle" id="toggleCalendar" type="button">隐藏日历</button><div class="month-nav"><button id="prevYear" aria-label="上一年">«</button><button id="prevMonth" aria-label="上个月">←</button><strong id="activityMonth"></strong><button id="nextMonth" aria-label="下个月">→</button><button id="nextYear" aria-label="下一年">»</button></div></div>
       </div>
       <div id="calendarBody">
         <div class="calendar-weekdays" aria-hidden="true"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span></div>
         <div class="calendar" id="activityCalendar"></div>
         <div class="heat-legend"><span>少</span><i class="heat-0"></i><i class="heat-1"></i><i class="heat-2"></i><i class="heat-3"></i><i class="heat-4"></i><span>多</span></div>
+        <p class="activity-coverage" id="activityCoverage"></p>
       </div>
     </section>
     <section class="toolbar">
@@ -47,12 +93,18 @@
     </section>
     <section class="games" id="games"></section>
     <p class="score-attribution hidden" id="scoreAttribution">MC 评分优先由 <a href="https://rawg.io/" target="_blank" rel="noopener noreferrer">RAWG</a> 提供，缺失时从 <a href="https://www.metacritic.com/game/" target="_blank" rel="noopener noreferrer">Metacritic</a> 公开游戏页补全。</p>
-    <section class="empty hidden" id="empty"><h2>还没有官方游戏记录</h2><p>连接游戏平台，或者导入平台提供的数据文件。</p></section>
+    <section class="empty hidden" id="empty"><h2 id="emptyTitle">还没有官方游戏记录</h2><p id="emptyMessage">连接游戏平台，或者导入平台提供的数据文件。</p></section>
     <section class="providers" id="connections">
-      <div><h2 data-text="数据来源" aria-label="数据来源">数据来源</h2><p class="section-note">连接信息只保存在本机。每个平台提供的数据范围不同。</p></div>
+      <div><h2 data-text="数据来源" aria-label="数据来源">数据来源</h2><p class="section-note">“欲知大道，必先为史。”<cite>——龚自珍《定庵续集》</cite></p></div>
       <div id="providerList" class="provider-list"></div>
     </section>
+    <div class="page-end">
+      <div class="page-end-status"><span>DATA PULSE // EVERY 1 HOUR</span><small>服务运行期间，每小时自动同步已连接的游戏平台</small></div>
+      <div class="page-end-actions"><button class="sync-all-footer hidden" id="syncAllFooter" type="button">立即同步游戏数据 ↻</button><button class="back-top-footer" id="backToTopFooter" type="button">一键回到顶部 ↑</button></div>
+    </div>
   </main>
+
+  <button class="quick-top" id="quickTopButton" type="button" aria-label="快速回到顶部" aria-hidden="true" tabindex="-1"><span>↑</span> 顶部</button>
 
   <dialog id="importDialog">
     <form id="importForm">
@@ -76,6 +128,17 @@
     </form>
   </dialog>
 
+  <dialog id="adminDialog">
+    <form id="adminForm">
+      <div class="dialog-head"><h2>解锁管理模式</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="hint">访客只能查看游戏档案。登录后才能导入文件、连接平台、同步或断开数据源。</p>
+      <label>管理员账号<input name="username" autocomplete="username" required maxlength="64" value="admin"></label>
+      <label>管理员密码<input name="password" type="password" autocomplete="current-password" required minlength="16" maxlength="512"></label>
+      <p class="form-error" id="adminError"></p>
+      <button class="primary wide" type="submit">解锁 8 小时</button>
+    </form>
+  </dialog>
+
   <dialog id="activityDialog">
     <div class="activity-dialog-body">
       <div class="dialog-head"><h2 id="activityDialogTitle">每日明细</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
@@ -83,7 +146,14 @@
     </div>
   </dialog>
 
+  <dialog class="highlight-dialog" id="highlightDialog">
+    <div class="highlight-dialog-body">
+      <div class="dialog-head"><h2 id="highlightDialogTitle">精彩时刻</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="highlight-viewer" id="highlightViewer"></div>
+    </div>
+  </dialog>
+
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js"></script>
+  <script type="module" src="/app.js?v=20260716-1"></script>
 </body>
 </html>

@@ -2,7 +2,8 @@ import express from "express";
 import multer from "multer";
 import ExcelJS from "exceljs";
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -14,18 +15,51 @@ import { createNintendoConnector } from "./src/platforms/nintendo.mjs";
 import { createSteamConnector } from "./src/platforms/steam.mjs";
 import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
-import { cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "./src/activity.mjs";
+import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, shanghaiDate } from "./src/activity.mjs";
+import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
+import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
+import { createSyncRunner } from "./src/sync-runner.mjs";
+import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-mkdirSync(path.join(root, "data"), { recursive: true });
-const db = new DatabaseSync(path.join(root, "data", "games.db"));
-const credentials = new CredentialStore(path.join(root, "data"));
+const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
+mkdirSync(dataDir, { recursive: true });
+const defaultHighlightsDir = path.join(dataDir, "highlights");
+mkdirSync(defaultHighlightsDir, { recursive: true });
+const db = new DatabaseSync(path.join(dataDir, "games.db"));
+const credentials = new CredentialStore(dataDir);
+const remoteMedia = createRemoteMediaService({ dataDirectory: dataDir });
 const playstation = createPlaystationConnector();
 const xbox = createXboxConnector();
 const nintendo = createNintendoConnector();
 const steam = createSteamConnector();
 const metacritic = createMetacriticConnector();
 const port = Number(process.env.PORT || 4173);
+const publicMode = process.env.PUBLIC_MODE === "1" || existsSync(path.join(dataDir, "public-mode"));
+
+function adminAccess() {
+  if (!publicMode) return null;
+  const envPassword = String(process.env.ADMIN_PASSWORD || "").trim();
+  const envUsername = String(process.env.ADMIN_USERNAME || "admin").trim();
+  if (envPassword) {
+    if (envUsername.length < 1 || envUsername.length > 64 || envPassword.length < 16 || envPassword.length > 512) {
+      throw new Error("ADMIN_USERNAME 或 ADMIN_PASSWORD 格式无效；密码至少需要 16 位");
+    }
+    return { username: envUsername, password: envPassword, source: "environment" };
+  }
+  const accessPath = path.join(dataDir, "admin-access.json");
+  if (existsSync(accessPath)) {
+    const saved = JSON.parse(readFileSync(accessPath, "utf8"));
+    if (saved.username && saved.password) return { ...saved, source: "file" };
+    throw new Error(`管理凭据文件格式无效：${accessPath}`);
+  }
+
+  const created = { username: "admin", password: randomBytes(18).toString("base64url") };
+  writeFileSync(accessPath, `${JSON.stringify(created, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+  return created;
+}
+
+const admin = adminAccess();
 db.exec(`
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS games (
@@ -59,6 +93,7 @@ db.exec(`
     external_id TEXT,
     title TEXT NOT NULL,
     minutes INTEGER NOT NULL DEFAULT 0 CHECK(minutes >= 0),
+    precision TEXT NOT NULL DEFAULT 'detected' CHECK(precision IN ('exact', 'detected')),
     cover_url TEXT,
     store_url TEXT,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -80,6 +115,12 @@ db.exec(`
     achievements_earned INTEGER NOT NULL DEFAULT 0,
     completed_games INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS nintendo_history_state (
+    title_id TEXT PRIMARY KEY,
+    revision TEXT NOT NULL,
+    total_played_days INTEGER NOT NULL DEFAULT 0,
+    synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
 
@@ -122,10 +163,129 @@ if (!gameColumns.includes("achievements_total")) db.exec("ALTER TABLE games ADD 
 if (!gameColumns.includes("achievements_updated_at")) db.exec("ALTER TABLE games ADD COLUMN achievements_updated_at TEXT");
 const activityColumns = db.prepare("PRAGMA table_info(daily_activity)").all().map((column) => column.name);
 if (!activityColumns.includes("store_url")) db.exec("ALTER TABLE daily_activity ADD COLUMN store_url TEXT");
+if (!activityColumns.includes("precision")) {
+  db.exec("ALTER TABLE daily_activity ADD COLUMN precision TEXT NOT NULL DEFAULT 'detected'");
+  db.exec("UPDATE daily_activity SET precision = 'exact' WHERE platform = 'nintendo'");
+}
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
+const adminSessions = new Map();
+const loginAttempts = new Map();
+const sessionLifetime = 8 * 60 * 60 * 1000;
+const loginWindow = 15 * 60 * 1000;
+const loginLimit = 8;
+
+function adminAuthenticated(req) {
+  if (!admin) return true;
+  const token = parseCookies(req.get("cookie")).mgv_admin;
+  const expiresAt = token ? adminSessions.get(token) : null;
+  if (!expiresAt || expiresAt <= Date.now()) {
+    if (token) adminSessions.delete(token);
+    return false;
+  }
+  return true;
+}
+
+function sameOrigin(req) {
+  return isSameOriginWrite({
+    origin: req.get("origin"),
+    host: req.get("host"),
+    protocol: req.protocol,
+    fetchSite: req.get("sec-fetch-site")
+  });
+}
+
+function adminTransportAllowed(req) {
+  return !admin || req.secure || isLoopbackHost(req.get("host"));
+}
+
+function setSecurityHeaders(_req, res, next) {
+  const remoteMediaSource = remoteMedia.allowedMediaSource();
+  const mediaSources = ["'self'", remoteMediaSource].filter(Boolean).join(" ");
+  res.set({
+    "Content-Security-Policy": `default-src 'self'; img-src 'self' https: data:; media-src ${mediaSources}; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+  });
+  if (_req.path.startsWith("/api/")) res.set("Cache-Control", "no-store");
+  next();
+}
+
+app.use(setSecurityHeaders);
 app.use(express.json({ limit: "1mb" }));
+app.get("/api/security", (req, res) => res.json({
+  publicMode,
+  canManage: adminAuthenticated(req),
+  adminAvailable: adminTransportAllowed(req)
+}));
+
+app.post("/api/admin/session", (req, res) => {
+  if (!admin) return res.json({ publicMode, canManage: true, adminAvailable: true });
+  if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站管理请求" });
+  if (!adminTransportAllowed(req)) {
+    res.set("Upgrade", "TLS/1.2");
+    return res.status(426).json({ error: "公网管理员登录必须使用 HTTPS；当前请从本机 http://localhost:4173 管理" });
+  }
+  const key = req.ip || req.socket.remoteAddress || "unknown";
+  const recent = (loginAttempts.get(key) || []).filter((time) => time > Date.now() - loginWindow);
+  if (recent.length >= loginLimit) {
+    res.set("Retry-After", String(Math.ceil((recent[0] + loginWindow - Date.now()) / 1000)));
+    return res.status(429).json({ error: "登录尝试过多，请 15 分钟后再试" });
+  }
+  const username = String(req.body?.username || "");
+  const password = String(req.body?.password || "");
+  if (!safeEqual(username, admin.username) || !safeEqual(password, admin.password)) {
+    recent.push(Date.now());
+    loginAttempts.set(key, recent);
+    return res.status(401).json({ error: "管理员账号或密码不正确" });
+  }
+  loginAttempts.delete(key);
+  const token = randomBytes(32).toString("base64url");
+  adminSessions.set(token, Date.now() + sessionLifetime);
+  const secure = req.secure ? "; Secure" : "";
+  res.set("Set-Cookie", `mgv_admin=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionLifetime / 1000}${secure}`);
+  return res.json({ publicMode, canManage: true, adminAvailable: true });
+});
+
+app.use((req, res, next) => {
+  if (!admin || !req.path.startsWith("/api/") || ["GET", "HEAD", "OPTIONS"].includes(req.method) || (req.method === "POST" && req.path === "/api/admin/session")) return next();
+  if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站管理请求" });
+  if (!adminAuthenticated(req)) return res.status(401).json({ error: "需要先解锁管理员模式" });
+  next();
+});
+
+app.delete("/api/admin/session", (req, res) => {
+  const token = parseCookies(req.get("cookie")).mgv_admin;
+  if (token) adminSessions.delete(token);
+  res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+  res.status(204).end();
+});
+app.get("/media/highlights/:filename", (req, res) => {
+  const filename = String(req.params.filename || "");
+  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) return res.status(404).end();
+  try {
+    const { directory } = resolveHighlightsDirectory(dataDir);
+    const realDirectory = realpathSync(directory);
+    const file = path.join(realDirectory, filename);
+    const stats = lstatSync(file);
+    if (!stats.isFile() || stats.isSymbolicLink()) return res.status(404).end();
+    res.set({
+      "Content-Disposition": "inline",
+      "Cross-Origin-Resource-Policy": "same-origin"
+    });
+    return res.sendFile(filename, { root: realDirectory, dotfiles: "deny", maxAge: "5m" }, (error) => {
+      if (!error) return;
+      if (error.code === "ECONNABORTED" || error.code === "EPIPE" || res.headersSent) return;
+      return res.status(error.statusCode || 404).end();
+    });
+  } catch {
+    return res.status(404).end();
+  }
+});
 app.use(express.static(path.join(root, "public")));
 
 const listGames = db.prepare(`
@@ -156,22 +316,25 @@ const upsertSyncedGame = db.prepare(`
 
 const findGameByExternalId = db.prepare("SELECT minutes FROM games WHERE platform = ? AND external_id = ?");
 const findGameByTitle = db.prepare("SELECT minutes FROM games WHERE platform = ? AND external_id IS NULL AND title = ? COLLATE NOCASE");
+const xboxAchievementTotals = db.prepare("SELECT external_id AS externalId, achievements_total AS total FROM games WHERE platform = 'xbox' AND external_id IS NOT NULL AND achievements_total > 0");
 const upsertDailyActivity = db.prepare(`
-  INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, cover_url, store_url)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, precision, cover_url, store_url)
+  VALUES (?, ?, ?, ?, ?, ?, 'detected', ?, ?)
   ON CONFLICT(date, platform, game_key) DO UPDATE SET
     title = excluded.title,
     minutes = daily_activity.minutes + excluded.minutes,
+    precision = CASE WHEN daily_activity.precision = 'exact' THEN 'exact' ELSE excluded.precision END,
     cover_url = COALESCE(excluded.cover_url, daily_activity.cover_url),
     store_url = COALESCE(excluded.store_url, daily_activity.store_url),
     updated_at = CURRENT_TIMESTAMP
 `);
 const setDailyActivity = db.prepare(`
-  INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, cover_url, store_url)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, precision, cover_url, store_url)
+  VALUES (?, ?, ?, ?, ?, ?, 'exact', ?, ?)
   ON CONFLICT(date, platform, game_key) DO UPDATE SET
     title = excluded.title,
     minutes = excluded.minutes,
+    precision = 'exact',
     cover_url = COALESCE(excluded.cover_url, daily_activity.cover_url),
     store_url = COALESCE(excluded.store_url, daily_activity.store_url),
     updated_at = CURRENT_TIMESTAMP
@@ -201,6 +364,16 @@ const upsertPlatformStats = db.prepare(`
     achievements_earned = excluded.achievements_earned,
     completed_games = excluded.completed_games,
     updated_at = CURRENT_TIMESTAMP
+`);
+const listNintendoHistoryState = db.prepare("SELECT title_id AS titleId, revision FROM nintendo_history_state");
+const clearNintendoHistoryState = db.prepare("DELETE FROM nintendo_history_state");
+const upsertNintendoHistoryState = db.prepare(`
+  INSERT INTO nintendo_history_state(title_id, revision, total_played_days, synced_at)
+  VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+  ON CONFLICT(title_id) DO UPDATE SET
+    revision = excluded.revision,
+    total_played_days = excluded.total_played_days,
+    synced_at = CURRENT_TIMESTAMP
 `);
 
 function dashboardStats() {
@@ -241,7 +414,7 @@ function publicConnection(provider) {
   } : { provider, connected: false, connectedAt: null, lastSyncAt: null, lastError: null, itemCount: 0 };
 }
 
-function saveSyncedGames(games, source) {
+function saveSyncedGames(games, source, { recordDelta = true } = {}) {
   let addedMinutes = 0;
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -251,8 +424,8 @@ function saveSyncedGames(games, source) {
         : findGameByTitle.get(game.platform, game.title);
       const delta = cumulativeDelta(previous?.minutes, game.minutes);
       const gameKey = game.externalId || String(game.title).trim().toLocaleLowerCase("zh-CN");
-      if (delta > 0) {
-        upsertDailyActivity.run(shanghaiDate(), game.platform, gameKey, game.externalId || null, game.title, delta, game.coverUrl || null, game.storeUrl || null);
+      if (recordDelta && delta > 0) {
+        upsertDailyActivity.run(activityDate(game.lastPlayed), game.platform, gameKey, game.externalId || null, game.title, delta, game.coverUrl || null, game.storeUrl || null);
         addedMinutes += delta;
       }
       if (/^\d{4}-\d{2}-\d{2}$/.test(game.lastPlayed || "")) {
@@ -309,7 +482,8 @@ async function syncXbox() {
   let connection = credentials.get("xbox");
   if (!connection || connection.pending) throw new Error("Xbox 尚未连接");
   try {
-    const games = await xbox.fetchGames(connection);
+    const knownAchievementTotals = new Map(xboxAchievementTotals.all().map((row) => [String(row.externalId), Number(row.total)]));
+    const games = await xbox.fetchGames(connection, { knownAchievementTotals });
     saveSyncedGames(games, "xbox-sync");
     connection = { ...connection, lastSyncAt: new Date().toISOString(), lastError: null, itemCount: games.length };
     credentials.set("xbox", connection);
@@ -324,13 +498,17 @@ async function syncNintendo() {
   let connection = credentials.get("nintendo");
   if (!connection || connection.pending) throw new Error("Nintendo 尚未连接");
   try {
-    const result = await nintendo.fetchGames(connection.sessionToken, connection.mode || "parental");
+    const historyState = new Map(listNintendoHistoryState.all().map((row) => [String(row.titleId), String(row.revision)]));
+    const result = await nintendo.fetchGames(connection.sessionToken, connection.mode || "parental", { historyState });
     saveSyncedGames(result.games, "nintendo-sync");
-    if (result.activity?.length) {
+    if (result.activity?.length || result.historySync?.length) {
       db.exec("BEGIN IMMEDIATE");
       try {
         for (const item of result.activity) {
           setDailyActivity.run(item.date, "nintendo", item.externalId, item.externalId, item.title, item.minutes, item.coverUrl || null, item.storeUrl || null);
+        }
+        for (const item of result.historySync || []) {
+          upsertNintendoHistoryState.run(item.titleId, item.revision, item.totalPlayedDays);
         }
         db.exec("COMMIT");
       } catch (error) {
@@ -343,11 +521,11 @@ async function syncNintendo() {
       nickname: result.nickname || connection.nickname || null,
       deviceCount: result.deviceCount,
       lastSyncAt: new Date().toISOString(),
-      lastError: null,
+      lastError: result.historyErrors?.length ? `${result.historyErrors.length} 款 Nintendo 历史记录本次未能回填，将在下次同步重试` : null,
       itemCount: result.games.length
     };
     credentials.set("nintendo", connection);
-    return { synced: result.games.length, connection: publicConnection("nintendo") };
+    return { synced: result.games.length, historyBackfilled: Number(result.historyBackfilled || 0), connection: publicConnection("nintendo") };
   } catch (error) {
     credentials.set("nintendo", { ...connection, lastError: error.message || "同步失败" });
     throw error;
@@ -402,7 +580,96 @@ async function syncMetacritic() {
   return { synced: updated, checked, connection: publicConnection("rawg") };
 }
 
+const automaticSyncIntervalMs = 60 * 60 * 1000;
+let nextAutomaticSyncAt = new Date(Date.now() + automaticSyncIntervalMs).toISOString();
+let lastAutomaticSyncAt = null;
+const gameSyncRunner = createSyncRunner([
+  { id: "playstation", sync: syncPlaystation },
+  { id: "xbox", sync: syncXbox },
+  { id: "nintendo", sync: syncNintendo },
+  { id: "steam", sync: syncSteam }
+], {
+  isConnected(provider) {
+    const connection = credentials.get(provider);
+    return Boolean(connection && !connection.pending);
+  },
+  onError(provider, error, trigger) {
+    const label = providers.find((item) => item.id === provider)?.name || provider;
+    console.error(`${label} ${trigger === "manual" ? "手动" : "自动"}同步失败：`, error?.message || error);
+  }
+});
+
 app.get("/api/games", (_req, res) => res.json({ games: listGames.all(), stats: dashboardStats() }));
+
+app.get("/api/sync/status", (_req, res) => res.json({
+  intervalMinutes: automaticSyncIntervalMs / 60_000,
+  running: gameSyncRunner.isRunning(),
+  lastAutomaticSyncAt,
+  nextAutomaticSyncAt
+}));
+
+app.post("/api/sync/all", async (_req, res, next) => {
+  try {
+    res.json(await gameSyncRunner.run("manual"));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/highlights", (_req, res) => {
+  const storage = resolveHighlightsDirectory(dataDir);
+  let available = false;
+  try { available = statSync(storage.directory).isDirectory(); } catch { available = false; }
+  const localHighlights = available ? listHighlights(storage.directory) : [];
+  let manifest = { files: {} };
+  try { manifest = remoteMedia.manifest(); } catch (error) { console.error(error.message); }
+  const highlights = mergeRemoteHighlights(localHighlights, manifest, { remoteEnabled: remoteMedia.isEnabled() });
+  res.json({
+    highlights,
+    total: highlights.length,
+    available,
+    customDirectory: storage.custom,
+    remoteEnabled: remoteMedia.isEnabled(),
+    remoteCount: Object.keys(manifest.files || {}).length
+  });
+});
+
+app.get("/api/highlights/playback", async (req, res) => {
+  const filename = String(req.query.filename || "");
+  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) {
+    return res.status(400).json({ error: "媒体文件名无效" });
+  }
+
+  try {
+    const remote = await remoteMedia.playback(filename);
+    if (remote) return res.json(remote);
+  } catch (error) {
+    console.error(`远程媒体播放链接生成失败：${error.message || error}`);
+  }
+
+  const storage = resolveHighlightsDirectory(dataDir);
+  const local = listHighlights(storage.directory, 5000).find((item) => item.filename === filename);
+  if (local) return res.json({ url: local.url, source: "local", expiresIn: null });
+  return res.status(404).json({ error: "视频不可用；请连接外置硬盘或重新同步云端媒体" });
+});
+
+app.get("/api/activity/recent", (_req, res) => {
+  const dates = recentDateRange(14);
+  const rows = db.prepare(`
+    SELECT date, platform, precision, SUM(minutes) AS minutes
+    FROM daily_activity
+    WHERE date >= ? AND date <= ? AND minutes > 0
+    GROUP BY date, platform, precision
+    ORDER BY date, platform
+  `).all(dates[0], dates.at(-1));
+  const days = groupRecentActivity(dates, rows);
+  res.json({
+    startDate: dates[0],
+    endDate: dates.at(-1),
+    totalMinutes: days.reduce((sum, day) => sum + day.totalMinutes, 0),
+    days
+  });
+});
 
 app.get("/api/activity", (req, res) => {
   const month = String(req.query.month || shanghaiDate().slice(0, 7));
@@ -410,12 +677,12 @@ app.get("/api/activity", (req, res) => {
   const next = monthEnd(month);
   const rows = db.prepare(`
     SELECT d.date, d.platform, d.external_id AS externalId, d.title, d.minutes, d.cover_url AS coverUrl, d.store_url AS storeUrl,
-           'minutes' AS eventType,
+           'minutes' AS eventType, d.precision,
            COALESCE((SELECT MAX(g.minutes) FROM games g WHERE g.platform = d.platform AND ((d.external_id IS NOT NULL AND g.external_id = d.external_id) OR (d.external_id IS NULL AND g.title = d.title COLLATE NOCASE))), 0) AS lifetimeMinutes
     FROM daily_activity d WHERE d.date >= ? AND d.date < ? AND d.minutes > 0
     UNION ALL
     SELECT e.date, e.platform, e.external_id AS externalId, e.title, 0 AS minutes, e.cover_url AS coverUrl, e.store_url AS storeUrl,
-           'lastPlayed' AS eventType,
+           'lastPlayed' AS eventType, 'history' AS precision,
            COALESCE((SELECT MAX(g.minutes) FROM games g WHERE g.platform = e.platform AND ((e.external_id IS NOT NULL AND g.external_id = e.external_id) OR (e.external_id IS NULL AND g.title = e.title COLLATE NOCASE))), 0) AS lifetimeMinutes
     FROM play_events e WHERE e.date >= ? AND e.date < ?
     ORDER BY date, minutes DESC, title COLLATE NOCASE
@@ -425,8 +692,12 @@ app.get("/api/activity", (req, res) => {
 
 app.get("/api/providers", (_req, res) => res.json({ providers }));
 
-app.get("/api/connections", (_req, res) => res.json({
-  connections: ["playstation", "xbox", "nintendo", "steam", "rawg"].map(publicConnection)
+app.get("/api/connections", (req, res) => res.json({
+  connections: ["playstation", "xbox", "nintendo", "steam", "rawg"].map((provider) => {
+    const connection = publicConnection(provider);
+    if (!adminAuthenticated(req)) connection.lastError = null;
+    return connection;
+  })
 }));
 
 app.post("/api/connections/playstation", async (req, res, next) => {
@@ -515,6 +786,7 @@ app.post("/api/connections/nintendo/complete", async (req, res, next) => {
       lastError: null,
       itemCount: 0
     });
+    clearNintendoHistoryState.run();
     credentials.delete("nintendo-pending");
     res.json(await syncNintendo());
   } catch (error) {
@@ -534,6 +806,7 @@ app.post("/api/connections/nintendo/sync", async (_req, res, next) => {
 app.delete("/api/connections/nintendo", (_req, res) => {
   credentials.delete("nintendo");
   credentials.delete("nintendo-pending");
+  clearNintendoHistoryState.run();
   res.status(204).end();
 });
 
@@ -634,7 +907,7 @@ app.post("/api/import", upload.single("file"), async (req, res, next) => {
     else return res.status(400).json({ error: "仅支持 .xlsx、.csv 或 .json" });
 
     const { records, errors } = normalizeRows(rows, req.body.platform);
-    saveSyncedGames(records.map((item) => ({ ...item, coverUrl: null, storeUrl: null, notes: "官方数据副本" })), "official-export");
+    saveSyncedGames(records.map((item) => ({ ...item, coverUrl: null, storeUrl: null, notes: "官方数据副本" })), "official-export", { recordDelta: false });
     res.json({ imported: records.length, skipped: errors.length, errors: errors.slice(0, 20) });
   } catch (error) {
     next(error);
@@ -647,13 +920,29 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: error.message || "服务器错误" });
 });
 
-app.listen(port, () => console.log(`游戏时长记录已启动：http://localhost:${port}`));
+app.listen(port, () => {
+  console.log(`游戏时长记录已启动：http://localhost:${port}`);
+  if (admin) console.log(`公网只读保护已启用；管理凭据来源：${admin.source === "environment" ? "环境变量" : path.join(dataDir, "admin-access.json")}`);
+});
 
-const automaticSync = setInterval(() => {
-  if (credentials.get("playstation")) syncPlaystation().catch((error) => console.error("PlayStation 自动同步失败：", error.message));
-  if (credentials.get("xbox")) syncXbox().catch((error) => console.error("Xbox 自动同步失败：", error.message));
-  if (credentials.get("nintendo")) syncNintendo().catch((error) => console.error("Nintendo 自动同步失败：", error.message));
-  if (credentials.get("steam")) syncSteam().catch((error) => console.error("Steam 自动同步失败：", error.message));
-  if (credentials.get("rawg")) syncMetacritic().catch((error) => console.error("MC 评分自动同步失败：", error.message));
-}, 6 * 60 * 60 * 1000);
-automaticSync.unref();
+async function runScheduledSync(trigger) {
+  try {
+    await gameSyncRunner.run(trigger);
+  } catch (error) {
+    console.error("全平台自动同步失败：", error?.message || error);
+  } finally {
+    if (trigger === "automatic") lastAutomaticSyncAt = new Date().toISOString();
+  }
+}
+
+const startupSync = setTimeout(() => { runScheduledSync("startup"); }, 2_000);
+startupSync.unref();
+function scheduleAutomaticSync() {
+  nextAutomaticSyncAt = new Date(Date.now() + automaticSyncIntervalMs).toISOString();
+  const automaticSync = setTimeout(async () => {
+    await runScheduledSync("automatic");
+    scheduleAutomaticSync();
+  }, automaticSyncIntervalMs);
+  automaticSync.unref();
+}
+scheduleAutomaticSync();

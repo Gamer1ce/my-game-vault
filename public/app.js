@@ -1,12 +1,27 @@
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const state = { games: [], stats: null, platform: "all", query: "", providers: [], connections: [], calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const HIGHLIGHT_INITIAL_COUNT = 4;
+const HIGHLIGHT_PAGE_SIZE = 8;
+const state = { games: [], highlights: [], visibleHighlights: HIGHLIGHT_INITIAL_COUNT, highlightStorage: { available: true, customDirectory: false }, recentActivity: { days: [], totalMinutes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
 const formatTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60).toLocaleString()}<span>小时 ${minutes % 60 ? `${minutes % 60} 分` : ""}</span>`;
 const formatPlainTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时${minutes % 60 ? ` ${minutes % 60} 分钟` : ""}`;
-const api = async (url, options) => { const response = await fetch(url, options); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "请求失败"); } return response.status === 204 ? null : response.json(); };
+const api = async (url, options = {}) => { const response = await fetch(url, { credentials:"same-origin", ...options }); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "请求失败"); } return response.status === 204 ? null : response.json(); };
+
+function renderSecurity() {
+  $("#importButton").classList.toggle("hidden", !state.security.canManage);
+  $("#syncAllFooter").classList.toggle("hidden", !state.security.canManage);
+  $("#adminButton").classList.toggle("hidden", !state.security.publicMode || (!state.security.canManage && !state.security.adminAvailable));
+  $("#adminButton").textContent = state.security.canManage ? "退出管理" : "管理员登录";
+  renderProviders();
+}
+
+async function loadSecurity() {
+  state.security = await api("/api/security");
+  renderSecurity();
+}
 
 function platformIcon(platform) {
   const paths = {
@@ -20,6 +35,34 @@ function platformIcon(platform) {
 
 document.querySelectorAll("#tabs button[data-platform]").forEach((button) => {
   if (button.dataset.platform !== "all") button.insertAdjacentHTML("afterbegin", platformIcon(button.dataset.platform));
+});
+document.querySelectorAll("[data-platform-icon]").forEach((holder) => {
+  holder.innerHTML = platformIcon(holder.dataset.platformIcon);
+});
+
+async function copyPublicId(value) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(value);
+    else {
+      const field = document.createElement("textarea");
+      field.value = value;
+      field.setAttribute("readonly", "");
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.append(field);
+      field.select();
+      if (!document.execCommand("copy")) throw new Error("copy failed");
+      field.remove();
+    }
+    toast(`已复制：${value}`);
+  } catch {
+    toast(`请手动添加：${value}`);
+  }
+}
+
+$("#friendLinks").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-copy-id]");
+  if (button) copyPublicId(button.dataset.copyId);
 });
 
 function posterCandidates(game) {
@@ -99,13 +142,154 @@ function render() {
   $("#games").innerHTML = games.map((game) => `<article class="game platform-${game.platform}">
     ${posterMarkup(game)}
     <div class="game-content"><div class="game-top"><span class="badge">${platformIcon(game.platform)}<span>${platformNames[game.platform]}</span></span><span class="source">${game.source === "manual" ? "历史记录" : game.source.endsWith("-sync") ? "官方同步" : "官方文件"}</span></div>
-    <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours">${formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`).join("");
+    <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours">${formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line" title="${Number(game.achievementsTotal) > 0 ? "已解锁 / 总成就" : "OpenXBL 当前未提供该游戏的总成就数"}">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`).join("");
+  const publicInstanceEmpty = state.security.publicMode && state.games.length === 0;
+  $("#emptyTitle").textContent = publicInstanceEmpty ? "公网实例尚未载入游戏数据" : "还没有官方游戏记录";
+  $("#emptyMessage").textContent = publicInstanceEmpty
+    ? (state.security.canManage ? "请在此服务器上同步平台，导入官方文件，或者迁移现有 games.db。" : "网站目前是只读的；需要管理员把游戏数据库同步或迁移到这台服务器。")
+    : "连接游戏平台，或者导入平台提供的数据文件。";
   $("#empty").classList.toggle("hidden", games.length > 0);
   $("#scoreAttribution").classList.toggle("hidden", !state.games.some((game) => game.metacriticScore !== null && game.metacriticScore !== undefined && Number.isInteger(Number(game.metacriticScore))));
 }
 
 async function load() { const result = await api("/api/games"); state.games = result.games; state.stats = result.stats || null; render(); }
 function toast(message) { const el = $("#toast"); el.textContent = message; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2800); }
+
+function compactTime(minutes) {
+  const value = Math.max(0, Number(minutes || 0));
+  if (value < 60) return `${value}m`;
+  const hours = Math.floor(value / 60);
+  return `${hours}h${value % 60 ? `${value % 60}m` : ""}`;
+}
+
+function renderRecentActivity() {
+  const days = state.recentActivity.days || [];
+  const maximum = Math.max(1, ...days.map((day) => Number(day.totalMinutes || 0)));
+  const platformOrder = ["xbox", "playstation", "nintendo", "steam"];
+  $("#recentTotal").textContent = formatPlainTime(Number(state.recentActivity.totalMinutes || 0));
+  $("#recentChart").innerHTML = days.map((day, index) => {
+    const total = Math.max(0, Number(day.totalMinutes || 0));
+    const approximate = Number(day.detectedMinutes || 0) > 0;
+    const [year, month, date] = day.date.split("-").map(Number);
+    const weekday = "日一二三四五六"[new Date(Date.UTC(year, month - 1, date)).getUTCDay()];
+    let segmentTop = 100;
+    const segments = platformOrder.map((platform) => {
+      const minutes = Math.max(0, Number(day.platforms?.[platform] || 0));
+      if (!minutes) return "";
+      const height = (minutes / maximum) * 100;
+      segmentTop -= height;
+      return `<rect class="recent-${platform}" x="0" y="${Math.max(0, segmentTop).toFixed(3)}" width="100" height="${height.toFixed(3)}"><title>${platformNames[platform]} ${formatPlainTime(minutes)}</title></rect>`;
+    }).join("");
+    const detail = total ? `${approximate ? "约 " : ""}${formatPlainTime(total)}` : "没有时长记录";
+    return `<div class="recent-day${index === days.length - 1 ? " is-today" : ""}" aria-label="${day.date}，${detail}"><span class="recent-day-total">${total ? `${approximate ? "≈" : ""}${compactTime(total)}` : "—"}</span><div class="recent-bar-track"><svg class="recent-bar-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">${segments}</svg></div><span class="recent-date"><b>${String(month).padStart(2, "0")}.${String(date).padStart(2, "0")}</b><small>周${weekday}</small></span></div>`;
+  }).join("");
+  $("#recentLegend").innerHTML = platformOrder.map((platform) => `<span class="recent-legend-item recent-${platform}">${platformIcon(platform)}${platformNames[platform]}</span>`).join("");
+  requestAnimationFrame(() => { const shell = $(".recent-chart-shell"); shell.scrollLeft = shell.scrollWidth; });
+}
+
+async function loadRecentActivity() {
+  state.recentActivity = await api("/api/activity/recent");
+  renderRecentActivity();
+}
+
+function safeHighlightUrl(value) {
+  return typeof value === "string" && value.startsWith("/media/highlights/") ? value : null;
+}
+
+function safePlaybackUrl(value) {
+  if (typeof value !== "string") return null;
+  try {
+    const url = new URL(value, window.location.origin);
+    if (url.origin === window.location.origin && url.pathname.startsWith("/media/highlights/")) return url.href;
+    return url.protocol === "https:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatFileSize(bytes) {
+  const size = Math.max(0, Number(bytes || 0));
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / 1024 / 1024).toFixed(size < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function renderHighlights() {
+  $("#highlightCount").textContent = `MEDIA // ${String(state.highlights.length).padStart(2, "0")}`;
+  const visibleCount = Math.min(state.visibleHighlights, state.highlights.length);
+  $("#highlightGrid").innerHTML = state.highlights.slice(0, visibleCount).map((item, index) => {
+    const url = safeHighlightUrl(item.url);
+    if (!url && item.type !== "video") return "";
+    const title = escapeHtml(item.title || item.filename || "精彩时刻");
+    const date = item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "日期未知";
+    const media = item.type === "video"
+      ? `${url ? `<video src="${escapeHtml(url)}" preload="metadata" muted playsinline aria-label="${title}"></video>` : `<span class="highlight-remote-preview" aria-hidden="true">REMOTE // ORIGINAL</span>`}<span class="highlight-play" aria-hidden="true">▶</span>`
+      : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
+    const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">云端原画</em>` : "";
+    return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${index}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
+  }).join("");
+  const remaining = Math.max(0, state.highlights.length - visibleCount);
+  const loadMore = $("#highlightLoadMore");
+  const collapse = $("#highlightCollapse");
+  loadMore.classList.toggle("hidden", remaining === 0);
+  loadMore.textContent = "显示更多";
+  loadMore.setAttribute("aria-label", remaining > 0 ? `显示更多精彩时刻，接下来展示 ${Math.min(HIGHLIGHT_PAGE_SIZE, remaining)} 个` : "所有精彩时刻已显示");
+  collapse.classList.toggle("hidden", visibleCount <= HIGHLIGHT_INITIAL_COUNT);
+  const emptyTitle = $("#highlightEmpty strong");
+  const emptyMessage = $("#highlightEmpty p");
+  if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
+    emptyTitle.textContent = "外置媒体库未连接";
+    emptyMessage.textContent = "连接保存精彩时刻的外置硬盘，然后刷新页面。";
+  } else if (state.highlightStorage.customDirectory) {
+    emptyTitle.textContent = "外置媒体库已接入";
+    emptyMessage.textContent = "当前文件夹还没有受支持的游戏截图或视频。";
+  } else {
+    emptyTitle.textContent = "信号尚未接入";
+    emptyMessage.innerHTML = "把游戏截图或视频放进 <code>data/highlights</code>，刷新页面后便会出现在这里。";
+  }
+  $("#highlightEmpty").classList.toggle("hidden", state.highlights.length > 0);
+}
+
+async function loadHighlights() {
+  const result = await api("/api/highlights");
+  state.highlights = Array.isArray(result.highlights) ? result.highlights : [];
+  state.visibleHighlights = HIGHLIGHT_INITIAL_COUNT;
+  state.highlightStorage = { available: result.available !== false, customDirectory: result.customDirectory === true, remoteEnabled: result.remoteEnabled === true, remoteCount: Number(result.remoteCount || 0) };
+  renderHighlights();
+}
+
+let highlightPlaybackRequest = 0;
+async function openHighlight(index) {
+  const item = state.highlights[index];
+  const url = safeHighlightUrl(item?.url);
+  if (!item || (item.type !== "video" && !url)) return;
+  const request = ++highlightPlaybackRequest;
+  $("#highlightDialogTitle").textContent = item.title || item.filename || "精彩时刻";
+  const viewer = $("#highlightViewer");
+  if (item.type !== "video") {
+    viewer.innerHTML = `<img src="${escapeHtml(url)}" alt="${escapeHtml(item.title || item.filename || "精彩时刻")}">`;
+    $("#highlightDialog").showModal();
+    return;
+  }
+  viewer.innerHTML = `<div class="highlight-loading"><strong>正在连接媒体节点</strong><span>校验原画播放地址…</span></div>`;
+  $("#highlightDialog").showModal();
+  try {
+    const playback = await api(`/api/highlights/playback?filename=${encodeURIComponent(item.filename)}`);
+    if (request !== highlightPlaybackRequest || !$("#highlightDialog").open) return;
+    const playbackUrl = safePlaybackUrl(playback.url);
+    if (!playbackUrl) throw new Error("播放地址不安全或不可用");
+    const video = document.createElement("video");
+    video.src = playbackUrl;
+    video.controls = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    const source = document.createElement("span");
+    source.className = `highlight-playback-source ${playback.source === "remote" ? "is-remote" : "is-local"}`;
+    source.textContent = playback.source === "remote" ? "云端原画" : "本机线路";
+    viewer.replaceChildren(video, source);
+  } catch (error) {
+    if (request === highlightPlaybackRequest) viewer.innerHTML = `<div class="highlight-loading is-error"><strong>视频暂时无法播放</strong><span>${escapeHtml(error.message)}</span></div>`;
+  }
+}
 
 function calendarLevel(total, max) {
   if (!total) return 0;
@@ -126,11 +310,17 @@ function renderActivity() {
     const activity = activityByDate.get(date);
     const total = activity?.totalMinutes || 0;
     const historical = activity?.historicalCount || 0;
-    const label = total ? formatPlainTime(total) : historical ? `${historical} 款记录` : "—";
-    cells.push(`<button class="calendar-day heat-${calendarLevel(total, max)}${historical && !total ? " has-history" : ""}" data-date="${date}" title="${date} · ${total ? formatPlainTime(total) : historical ? `${historical} 款最后游玩记录` : "无记录"}"><span>${String(day).padStart(2, "0")}</span><strong>${label}</strong></button>`);
+    const approximate = total > 0 && Number(activity?.detectedMinutes || 0) > 0;
+    const label = total ? `${approximate ? "约 " : ""}${formatPlainTime(total)}` : historical ? `${historical} 款记录` : "—";
+    cells.push(`<button class="calendar-day heat-${calendarLevel(total, max)}${historical && !total ? " has-history" : ""}" data-date="${date}" title="${date} · ${total ? label : historical ? `${historical} 款最后游玩记录` : "无记录"}"><span>${String(day).padStart(2, "0")}</span><strong>${label}</strong></button>`);
   }
   $("#activityCalendar").innerHTML = cells.join("");
   $("#calendarBody").hidden = state.calendarHidden;
+  const exactDays = state.activity.days.filter((day) => Number(day.exactMinutes) > 0).length;
+  const detectedDays = state.activity.days.filter((day) => Number(day.detectedMinutes) > 0).length;
+  const historyRows = state.activity.days.reduce((sum, day) => sum + Number(day.historicalCount || 0), 0);
+  const detectedCoverage = detectedDays > 0 ? `累计差值 ${detectedDays} 天` : "累计差值 0 天（尚未检测到新增累计时长）";
+  $("#activityCoverage").textContent = `本月覆盖：平台逐日 ${exactDays} 天 · ${detectedCoverage} · 最近游玩 ${historyRows} 条`;
   $("#toggleCalendar").textContent = state.calendarHidden ? "显示日历" : "隐藏日历";
   $("#toggleCalendar").setAttribute("aria-expanded", String(!state.calendarHidden));
 }
@@ -157,20 +347,35 @@ function openActivity(date) {
       (result[game.platform] ||= []).push(game); return result;
     }, {}));
     const hasHistoricalOnly = day.games.some((game) => game.eventType === "lastPlayed" && !game.minutes);
-    $("#activityDetails").innerHTML = `${hasHistoricalOnly ? `<p class="activity-explainer">平台历史只能确认这一天最后玩过该游戏，无法还原当日具体分钟数；下方同时显示游戏的官方累计时长。</p>` : ""}${groups.map(([platform, games]) => `<section class="activity-platform"><div class="activity-platform-head"><strong>${platformIcon(platform)}${platformNames[platform]}</strong><span>${games.some((game) => game.minutes > 0) ? formatPlainTime(games.reduce((sum, game) => sum + game.minutes, 0)) : `${games.length} 款记录`}</span></div>${games.map((game) => `<div class="activity-game">${posterMarkup(game, "activity-poster")}<div><strong>${escapeHtml(game.title)}</strong><small>${platformNames[game.platform]}</small></div><div class="activity-time ${game.minutes ? "" : "history-label"}"><b>${game.minutes ? `当日 ${formatPlainTime(game.minutes)}` : "当日时长未知"}</b><small>${Number(game.lifetimeMinutes) > 0 ? `累计 ${formatPlainTime(Number(game.lifetimeMinutes))}` : "累计时长暂无官方数据"}</small></div></div>`).join("")}</section>`).join("")}`;
+    const hasDetected = day.games.some((game) => game.precision === "detected" && game.minutes);
+    const explanation = [
+      hasDetected ? "“同步检测”是累计时长相对上次同步的增量，并优先归到平台返回的最近游玩日期。" : "",
+      hasHistoricalOnly ? "“最近玩过”只能确认日期，无法还原当日分钟数。" : ""
+    ].filter(Boolean).join("");
+    $("#activityDetails").innerHTML = `${explanation ? `<p class="activity-explainer">${explanation}</p>` : ""}${groups.map(([platform, games]) => `<section class="activity-platform"><div class="activity-platform-head"><strong>${platformIcon(platform)}${platformNames[platform]}</strong><span>${games.some((game) => game.minutes > 0) ? formatPlainTime(games.reduce((sum, game) => sum + game.minutes, 0)) : `${games.length} 款记录`}</span></div>${games.map((game) => `<div class="activity-game">${posterMarkup(game, "activity-poster")}<div><strong>${escapeHtml(game.title)}</strong><small>${platformNames[game.platform]}</small></div><div class="activity-time ${game.minutes ? "" : "history-label"}"><b>${game.minutes ? `${game.precision === "exact" ? "当日确切" : "同步检测"} ${formatPlainTime(game.minutes)}` : "当日时长未知"}</b><small>${Number(game.lifetimeMinutes) > 0 ? `累计 ${formatPlainTime(Number(game.lifetimeMinutes))}` : "累计时长暂无官方数据"}</small></div></div>`).join("")}</section>`).join("")}`;
   }
   $("#activityDialog").showModal();
 }
 
 $("#importButton").addEventListener("click", () => { $("#importForm").reset(); $("#importError").textContent = ""; $("#importDialog").showModal(); });
+$("#prevYear").addEventListener("click", () => shiftMonth(-12));
 $("#prevMonth").addEventListener("click", () => shiftMonth(-1));
 $("#nextMonth").addEventListener("click", () => shiftMonth(1));
+$("#nextYear").addEventListener("click", () => shiftMonth(12));
 $("#toggleCalendar").addEventListener("click", () => {
   state.calendarHidden = !state.calendarHidden;
   localStorage.setItem("playlog-calendar-hidden", String(state.calendarHidden));
   renderActivity();
 });
 $("#activityCalendar").addEventListener("click", (event) => { const button = event.target.closest("button[data-date]"); if (button) openActivity(button.dataset.date); });
+$("#highlightGrid").addEventListener("click", (event) => { const button = event.target.closest("button[data-highlight-index]"); if (button) openHighlight(Number(button.dataset.highlightIndex)); });
+$("#highlightLoadMore").addEventListener("click", () => { state.visibleHighlights += HIGHLIGHT_PAGE_SIZE; renderHighlights(); });
+$("#highlightCollapse").addEventListener("click", () => {
+  state.visibleHighlights = HIGHLIGHT_INITIAL_COUNT;
+  renderHighlights();
+  requestAnimationFrame(() => $("#highlights").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
+});
+$("#highlightDialog").addEventListener("close", () => { highlightPlaybackRequest += 1; const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
 $("#tabs").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#tabs .active").classList.remove("active"); button.classList.add("active"); state.platform = button.dataset.platform; render(); });
 $("#search").addEventListener("input", (event) => { state.query = event.target.value.trim().toLowerCase(); render(); });
 
@@ -194,17 +399,20 @@ document.addEventListener("click", (event) => {
 
 $("#importForm").addEventListener("submit", async (event) => {
   event.preventDefault(); const form = event.currentTarget; const button = form.querySelector("button[type=submit]"); button.disabled = true; button.textContent = "正在导入…";
-  try { const result = await api("/api/import", { method:"POST", body:new FormData(form) }); $("#importDialog").close(); await Promise.all([load(), loadActivity()]); toast(`已导入 ${result.imported} 条，跳过 ${result.skipped} 条`); } catch (error) { $("#importError").textContent = error.message; } finally { button.disabled = false; button.textContent = "开始导入"; }
+  try { const result = await api("/api/import", { method:"POST", body:new FormData(form) }); $("#importDialog").close(); await Promise.all([load(), loadActivity(), loadRecentActivity()]); toast(`已导入 ${result.imported} 条，跳过 ${result.skipped} 条`); } catch (error) { $("#importError").textContent = error.message; } finally { button.disabled = false; button.textContent = "开始导入"; }
 });
 
 function renderProviders() {
   $("#providerList").innerHTML = state.providers.map((provider) => {
     const connection = state.connections.find((item) => item.provider === provider.id) || { connected:false };
     const canConnect = Object.keys(platformNames).includes(provider.id) || provider.id === "rawg";
+    const actions = state.security.canManage
+      ? (connection.connected ? `<button class="small-button sync-provider">立即同步</button><button class="small-button danger disconnect-provider">断开</button>` : `<button class="small-button connect-provider" ${canConnect ? "" : "disabled"}>${canConnect ? "连接" : "即将支持"}</button>`)
+      : `<span class="visitor-note">只读展示</span>`;
     return `<div class="provider" data-provider="${provider.id}"><strong>${provider.name}</strong>
       <span class="status ${connection.connected ? "connected" : ""}">${connection.connected ? "已连接" : provider.status}</span>
       <p>${provider.detail}${connection.mode ? `<span class="connection-meta">连接方式：${connection.mode === "play-activity" ? "账号游戏记录" : "家长监护"}</span>` : ""}${connection.lastSyncAt ? `<span class="connection-meta">最后同步：${new Date(connection.lastSyncAt).toLocaleString()} · ${connection.itemCount} 款</span>` : ""}${connection.lastError ? `<span class="connection-meta error-meta">错误：${escapeHtml(connection.lastError)}</span>` : ""}</p>
-      <div class="provider-actions">${connection.connected ? `<button class="small-button sync-provider">立即同步</button><button class="small-button danger disconnect-provider">断开</button>` : `<button class="small-button connect-provider" ${canConnect ? "" : "disabled"}>${canConnect ? "连接" : "即将支持"}</button>`}</div></div>`;
+      <div class="provider-actions">${actions}</div></div>`;
   }).join("");
 }
 
@@ -247,7 +455,7 @@ $("#providerList").addEventListener("click", async (event) => {
   if (button.classList.contains("connect-provider")) return openConnection(provider);
   if (button.classList.contains("sync-provider")) {
     button.disabled = true; button.textContent = "同步中…";
-    try { const result = await api(`/api/connections/${provider}/sync`, { method:"POST" }); await Promise.all([load(), loadConnections(), loadActivity()]); toast(provider === "rawg" ? `已检查 ${result.checked} 款，匹配 ${result.synced} 个 MC 评分` : `已同步 ${result.synced} 款游戏`); } catch (error) { toast(error.message); await loadConnections(); }
+    try { const result = await api(`/api/connections/${provider}/sync`, { method:"POST" }); await Promise.all([load(), loadConnections(), loadActivity(), loadRecentActivity()]); toast(provider === "rawg" ? `已检查 ${result.checked} 款，匹配 ${result.synced} 个 MC 评分` : provider === "nintendo" && result.historyBackfilled ? `已同步 ${result.synced} 款游戏，回填 ${result.historyBackfilled} 款历史` : `已同步 ${result.synced} 款游戏`); } catch (error) { toast(error.message); await loadConnections(); }
   }
   if (button.classList.contains("disconnect-provider") && confirm(`断开 ${provider === "rawg" ? "MC 评分" : platformNames[provider]}？已同步记录会保留。`)) {
     await api(`/api/connections/${provider}`, { method:"DELETE" }); await loadConnections(); toast("平台已断开");
@@ -267,7 +475,7 @@ $("#connectForm").addEventListener("submit", async (event) => {
       const url = provider === "nintendo" ? "/api/connections/nintendo/complete" : `/api/connections/${provider}`;
       const body = provider === "nintendo" ? { callbackUrl:data.callbackUrl } : data;
       const result = await api(url, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
-      $("#connectDialog").close(); await Promise.all([load(), loadConnections(), loadActivity()]); toast(provider === "rawg" ? `连接成功，已匹配 ${result.synced} 个 MC 评分` : `连接成功，已同步 ${result.synced} 款游戏`);
+      $("#connectDialog").close(); await Promise.all([load(), loadConnections(), loadActivity(), loadRecentActivity()]); toast(provider === "rawg" ? `连接成功，已匹配 ${result.synced} 个 MC 评分` : provider === "nintendo" && result.historyBackfilled ? `连接成功，已同步 ${result.synced} 款并回填 ${result.historyBackfilled} 款历史` : `连接成功，已同步 ${result.synced} 款游戏`);
     }
   } catch (error) { $("#connectError").textContent = error.message; } finally {
     button.disabled = false;
@@ -276,4 +484,101 @@ $("#connectForm").addEventListener("submit", async (event) => {
   }
 });
 
-Promise.all([load(), loadConnections(), loadActivity()]).catch((error) => toast(error.message));
+$("#adminButton").addEventListener("click", async () => {
+  if (state.security.canManage) {
+    try {
+      await api("/api/admin/session", { method:"DELETE" });
+      await Promise.all([loadSecurity(), loadConnections()]);
+      toast("已退出管理模式");
+    } catch (error) { toast(error.message); }
+    return;
+  }
+  $("#adminForm").reset();
+  $("#adminForm").elements.username.value = "admin";
+  $("#adminError").textContent = "";
+  $("#adminDialog").showModal();
+});
+
+$("#adminForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type=submit]");
+  button.disabled = true;
+  try {
+    const body = Object.fromEntries(new FormData(form));
+    state.security = await api("/api/admin/session", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    form.reset();
+    $("#adminDialog").close();
+    await loadConnections();
+    renderSecurity();
+    toast("管理模式已解锁");
+  } catch (error) { $("#adminError").textContent = error.message; }
+  finally { button.disabled = false; }
+});
+
+const quickTopButton = $("#quickTopButton");
+let quickTopTimer;
+let scrollWindowStartY = window.scrollY;
+let scrollWindowStartAt = performance.now();
+let ignoreFastScrollUntil = 0;
+
+function hideQuickTop() {
+  quickTopButton.classList.remove("is-visible");
+  quickTopButton.setAttribute("aria-hidden", "true");
+  quickTopButton.tabIndex = -1;
+}
+
+function showQuickTop() {
+  quickTopButton.classList.add("is-visible");
+  quickTopButton.setAttribute("aria-hidden", "false");
+  quickTopButton.tabIndex = 0;
+  clearTimeout(quickTopTimer);
+  quickTopTimer = setTimeout(hideQuickTop, 6000);
+}
+
+function returnToTop() {
+  ignoreFastScrollUntil = performance.now() + 1200;
+  hideQuickTop();
+  window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+
+$("#backToTopFooter").addEventListener("click", returnToTop);
+$("#syncAllFooter").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在同步…";
+  try {
+    const result = await api("/api/sync/all", { method:"POST" });
+    await Promise.all([load(), loadConnections(), loadActivity(), loadRecentActivity()]);
+    const succeeded = result.results.filter((item) => item.ok).length;
+    const failed = result.results.length - succeeded;
+    if (!result.results.length) toast("暂无已连接的游戏平台");
+    else if (failed) toast(`已同步 ${succeeded} 个平台，${failed} 个平台失败`);
+    else toast(`已完成 ${succeeded} 个平台的数据同步`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+});
+quickTopButton.addEventListener("click", returnToTop);
+window.addEventListener("scroll", () => {
+  const time = performance.now();
+  const position = window.scrollY;
+  if (position < 420) hideQuickTop();
+  if (time < ignoreFastScrollUntil) return;
+  if (position < scrollWindowStartY || time - scrollWindowStartAt > 220) {
+    scrollWindowStartY = position;
+    scrollWindowStartAt = time;
+    return;
+  }
+  if (position > 700 && position - scrollWindowStartY > 420) {
+    showQuickTop();
+    scrollWindowStartY = position;
+    scrollWindowStartAt = time;
+  }
+}, { passive: true });
+
+loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights(), loadRecentActivity()])).catch((error) => toast(error.message));
