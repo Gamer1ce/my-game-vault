@@ -16,7 +16,7 @@ import { createSteamConnector } from "./src/platforms/steam.mjs";
 import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
 import { cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "./src/activity.mjs";
-import { isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
+import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
@@ -180,6 +180,10 @@ function sameOrigin(req) {
   });
 }
 
+function adminTransportAllowed(req) {
+  return !admin || req.secure || isLoopbackHost(req.get("host"));
+}
+
 function setSecurityHeaders(_req, res, next) {
   res.set({
     "Content-Security-Policy": "default-src 'self'; img-src 'self' https: data:; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
@@ -194,11 +198,19 @@ function setSecurityHeaders(_req, res, next) {
 
 app.use(setSecurityHeaders);
 app.use(express.json({ limit: "1mb" }));
-app.get("/api/security", (req, res) => res.json({ publicMode, canManage: adminAuthenticated(req) }));
+app.get("/api/security", (req, res) => res.json({
+  publicMode,
+  canManage: adminAuthenticated(req),
+  adminAvailable: adminTransportAllowed(req)
+}));
 
 app.post("/api/admin/session", (req, res) => {
-  if (!admin) return res.json({ publicMode, canManage: true });
+  if (!admin) return res.json({ publicMode, canManage: true, adminAvailable: true });
   if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站管理请求" });
+  if (!adminTransportAllowed(req)) {
+    res.set("Upgrade", "TLS/1.2");
+    return res.status(426).json({ error: "公网管理员登录必须使用 HTTPS；当前请从本机 http://localhost:4173 管理" });
+  }
   const key = req.ip || req.socket.remoteAddress || "unknown";
   const recent = (loginAttempts.get(key) || []).filter((time) => time > Date.now() - loginWindow);
   if (recent.length >= loginLimit) {
@@ -217,7 +229,7 @@ app.post("/api/admin/session", (req, res) => {
   adminSessions.set(token, Date.now() + sessionLifetime);
   const secure = req.secure ? "; Secure" : "";
   res.set("Set-Cookie", `mgv_admin=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionLifetime / 1000}${secure}`);
-  return res.json({ publicMode, canManage: true });
+  return res.json({ publicMode, canManage: true, adminAvailable: true });
 });
 
 app.use((req, res, next) => {

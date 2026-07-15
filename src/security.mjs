@@ -27,3 +27,12 @@ export function isSameOriginWrite({ origin, host, protocol, fetchSite }) {
     return false;
   }
 }
+
+export function isLoopbackHost(host = "") {
+  try {
+    const hostname = new URL(`http://${host}`).hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}

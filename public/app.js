@@ -1,6 +1,6 @@
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const state = { games: [], stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const state = { games: [], stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -10,7 +10,7 @@ const api = async (url, options = {}) => { const response = await fetch(url, { c
 
 function renderSecurity() {
   $("#importButton").classList.toggle("hidden", !state.security.canManage);
-  $("#adminButton").classList.toggle("hidden", !state.security.publicMode);
+  $("#adminButton").classList.toggle("hidden", !state.security.publicMode || (!state.security.canManage && !state.security.adminAvailable));
   $("#adminButton").textContent = state.security.canManage ? "退出管理" : "管理员登录";
   renderProviders();
 }
