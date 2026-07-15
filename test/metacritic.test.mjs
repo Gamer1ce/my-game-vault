@@ -138,3 +138,36 @@ test("列表无总分时读取游戏详情中的平台分数", async () => {
     scoreUrl: "https://rawg.io/games/game"
   });
 });
+
+test("Nintendo 多语言标题使用英文别名查询 MC 评分", async () => {
+  const requests = [];
+  const connector = createMetacriticConnector({ fetchFn: async (input) => {
+    const url = new URL(input);
+    requests.push(url);
+    if (url.hostname === "backend.metacritic.com" && url.pathname.includes("13-sentinels-aegis-rim")) {
+      return { ok: true, status: 200, json: async () => ({ data: { item: { title: "13 Sentinels: Aegis Rim", slug: "13-sentinels-aegis-rim", criticScoreSummary: { score: 85 } } } }) };
+    }
+    if (url.hostname === "backend.metacritic.com") return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ results: [] }) };
+  }});
+  assert.deepEqual(await connector.fetchScore("valid-api-key-1234", { title: "十三机兵防卫圈", platform: "nintendo" }), {
+    score: 85,
+    scoreUrl: "https://www.metacritic.com/game/13-sentinels-aegis-rim/"
+  });
+  assert.equal(requests.some((url) => url.searchParams.get("search") === "13 Sentinels: Aegis Rim"), true);
+});
+
+test("Nintendo Switch 2 Edition 使用基础游戏名称匹配评分", async () => {
+  const connector = createMetacriticConnector({ fetchFn: async (input) => {
+    const url = new URL(input);
+    if (url.hostname === "backend.metacritic.com" && url.pathname.includes("pokemon-legends-z-a")) {
+      return { ok: true, status: 200, json: async () => ({ data: { item: { title: "Pokemon Legends: Z-A", slug: "pokemon-legends-z-a", criticScoreSummary: { score: 78 } } } }) };
+    }
+    if (url.hostname === "backend.metacritic.com") return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ results: [] }) };
+  }});
+  assert.deepEqual(await connector.fetchScore("valid-api-key-1234", { title: "Pokémon Legends: Z-A – Nintendo Switch 2 Edition", platform: "nintendo" }), {
+    score: 78,
+    scoreUrl: "https://www.metacritic.com/game/pokemon-legends-z-a/"
+  });
+});

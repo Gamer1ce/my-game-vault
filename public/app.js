@@ -93,7 +93,7 @@ function render() {
     ["全成就游戏", `${Number(summary.completedGames || 0)} 款`],
     ["游玩最多平台", summary.primaryPlatform ? platformNames[summary.primaryPlatform] : "—"],
     ["最近同步日期", summary.latest || "—"]
-  ].map(([label,value], index) => `<div class="stat ${index === 0 ? "stat-primary" : ""}"><small class="stat-label">${escapeHtml(label)}</small><strong class="stat-value" data-text="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
+  ].map(([label,value], index) => `<div class="stat ${index === 0 ? "stat-primary" : ""}"><small class="stat-label">${escapeHtml(label)}</small><strong class="stat-value" data-text="${escapeHtml(value)}" aria-label="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
 
   const games = state.games.filter((game) => (state.platform === "all" || game.platform === state.platform) && game.title.toLowerCase().includes(state.query));
   $("#games").innerHTML = games.map((game) => `<article class="game platform-${game.platform}">
