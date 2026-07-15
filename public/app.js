@@ -217,7 +217,7 @@ function renderHighlights() {
   const remaining = Math.max(0, state.highlights.length - visibleCount);
   const loadMore = $("#highlightLoadMore");
   loadMore.classList.toggle("hidden", remaining === 0);
-  loadMore.textContent = remaining > 0 ? `显示更多（再展示 ${Math.min(HIGHLIGHT_PAGE_SIZE, remaining)} 个）` : "显示更多";
+  loadMore.textContent = "显示更多";
   loadMore.setAttribute("aria-label", remaining > 0 ? `显示更多精彩时刻，接下来展示 ${Math.min(HIGHLIGHT_PAGE_SIZE, remaining)} 个` : "所有精彩时刻已显示");
   const emptyTitle = $("#highlightEmpty strong");
   const emptyMessage = $("#highlightEmpty p");
