@@ -12,6 +12,7 @@ const api = async (url, options = {}) => { const response = await fetch(url, { c
 
 function renderSecurity() {
   $("#importButton").classList.toggle("hidden", !state.security.canManage);
+  $("#syncAllFooter").classList.toggle("hidden", !state.security.canManage);
   $("#adminButton").classList.toggle("hidden", !state.security.publicMode || (!state.security.canManage && !state.security.adminAvailable));
   $("#adminButton").textContent = state.security.canManage ? "退出管理" : "管理员登录";
   renderProviders();
@@ -507,6 +508,26 @@ function returnToTop() {
 }
 
 $("#backToTopFooter").addEventListener("click", returnToTop);
+$("#syncAllFooter").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  const label = button.textContent;
+  button.disabled = true;
+  button.textContent = "正在同步…";
+  try {
+    const result = await api("/api/sync/all", { method:"POST" });
+    await Promise.all([load(), loadConnections(), loadActivity(), loadRecentActivity()]);
+    const succeeded = result.results.filter((item) => item.ok).length;
+    const failed = result.results.length - succeeded;
+    if (!result.results.length) toast("暂无已连接的游戏平台");
+    else if (failed) toast(`已同步 ${succeeded} 个平台，${failed} 个平台失败`);
+    else toast(`已完成 ${succeeded} 个平台的数据同步`);
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = label;
+  }
+});
 quickTopButton.addEventListener("click", returnToTop);
 window.addEventListener("scroll", () => {
   const time = performance.now();

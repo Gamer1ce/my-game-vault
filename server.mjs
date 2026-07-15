@@ -18,6 +18,7 @@ import { providers } from "./src/providers.mjs";
 import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, shanghaiDate } from "./src/activity.mjs";
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
+import { createSyncRunner } from "./src/sync-runner.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
@@ -259,7 +260,7 @@ app.delete("/api/admin/session", (req, res) => {
   res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
   res.status(204).end();
 });
-app.get("/media/highlights/:filename", (req, res, next) => {
+app.get("/media/highlights/:filename", (req, res) => {
   const filename = String(req.params.filename || "");
   if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) return res.status(404).end();
   try {
@@ -274,8 +275,8 @@ app.get("/media/highlights/:filename", (req, res, next) => {
     });
     return res.sendFile(filename, { root: realDirectory, dotfiles: "deny", maxAge: "5m" }, (error) => {
       if (!error) return;
-      if (!res.headersSent) return res.status(error.statusCode || 404).end();
-      next(error);
+      if (error.code === "ECONNABORTED" || error.code === "EPIPE" || res.headersSent) return;
+      return res.status(error.statusCode || 404).end();
     });
   } catch {
     return res.status(404).end();
@@ -575,7 +576,41 @@ async function syncMetacritic() {
   return { synced: updated, checked, connection: publicConnection("rawg") };
 }
 
+const automaticSyncIntervalMs = 60 * 60 * 1000;
+let nextAutomaticSyncAt = new Date(Date.now() + automaticSyncIntervalMs).toISOString();
+let lastAutomaticSyncAt = null;
+const gameSyncRunner = createSyncRunner([
+  { id: "playstation", sync: syncPlaystation },
+  { id: "xbox", sync: syncXbox },
+  { id: "nintendo", sync: syncNintendo },
+  { id: "steam", sync: syncSteam }
+], {
+  isConnected(provider) {
+    const connection = credentials.get(provider);
+    return Boolean(connection && !connection.pending);
+  },
+  onError(provider, error, trigger) {
+    const label = providers.find((item) => item.id === provider)?.name || provider;
+    console.error(`${label} ${trigger === "manual" ? "手动" : "自动"}同步失败：`, error?.message || error);
+  }
+});
+
 app.get("/api/games", (_req, res) => res.json({ games: listGames.all(), stats: dashboardStats() }));
+
+app.get("/api/sync/status", (_req, res) => res.json({
+  intervalMinutes: automaticSyncIntervalMs / 60_000,
+  running: gameSyncRunner.isRunning(),
+  lastAutomaticSyncAt,
+  nextAutomaticSyncAt
+}));
+
+app.post("/api/sync/all", async (_req, res, next) => {
+  try {
+    res.json(await gameSyncRunner.run("manual"));
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get("/api/highlights", (_req, res) => {
   const storage = resolveHighlightsDirectory(dataDir);
@@ -857,15 +892,24 @@ app.listen(port, () => {
   if (admin) console.log(`公网只读保护已启用；管理凭据来源：${admin.source === "environment" ? "环境变量" : path.join(dataDir, "admin-access.json")}`);
 });
 
-function syncConnectedPlatforms() {
-  if (credentials.get("playstation")) syncPlaystation().catch((error) => console.error("PlayStation 自动同步失败：", error.message));
-  if (credentials.get("xbox")) syncXbox().catch((error) => console.error("Xbox 自动同步失败：", error.message));
-  if (credentials.get("nintendo")) syncNintendo().catch((error) => console.error("Nintendo 自动同步失败：", error.message));
-  if (credentials.get("steam")) syncSteam().catch((error) => console.error("Steam 自动同步失败：", error.message));
-  if (credentials.get("rawg")) syncMetacritic().catch((error) => console.error("MC 评分自动同步失败：", error.message));
+async function runScheduledSync(trigger) {
+  try {
+    await gameSyncRunner.run(trigger);
+  } catch (error) {
+    console.error("全平台自动同步失败：", error?.message || error);
+  } finally {
+    if (trigger === "automatic") lastAutomaticSyncAt = new Date().toISOString();
+  }
 }
 
-const startupSync = setTimeout(syncConnectedPlatforms, 2_000);
+const startupSync = setTimeout(() => { runScheduledSync("startup"); }, 2_000);
 startupSync.unref();
-const automaticSync = setInterval(syncConnectedPlatforms, 6 * 60 * 60 * 1000);
-automaticSync.unref();
+function scheduleAutomaticSync() {
+  nextAutomaticSyncAt = new Date(Date.now() + automaticSyncIntervalMs).toISOString();
+  const automaticSync = setTimeout(async () => {
+    await runScheduledSync("automatic");
+    scheduleAutomaticSync();
+  }, automaticSyncIntervalMs);
+  automaticSync.unref();
+}
+scheduleAutomaticSync();

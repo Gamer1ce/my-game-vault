@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260715-15">
+  <link rel="stylesheet" href="/styles.css?v=20260715-16">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
@@ -98,7 +98,10 @@
       <div><h2 data-text="数据来源" aria-label="数据来源">数据来源</h2><p class="section-note">“欲知大道，必先为史。”<cite>——龚自珍《定庵续集》</cite></p></div>
       <div id="providerList" class="provider-list"></div>
     </section>
-    <div class="page-end"><span>ARCHIVE // END OF LINE</span><button class="back-top-footer" id="backToTopFooter" type="button">一键回到顶部 ↑</button></div>
+    <div class="page-end">
+      <div class="page-end-status"><span>DATA PULSE // EVERY 1 HOUR</span><small>服务运行期间，每小时自动同步已连接的游戏平台</small></div>
+      <div class="page-end-actions"><button class="sync-all-footer hidden" id="syncAllFooter" type="button">立即同步游戏数据 ↻</button><button class="back-top-footer" id="backToTopFooter" type="button">一键回到顶部 ↑</button></div>
+    </div>
   </main>
 
   <button class="quick-top" id="quickTopButton" type="button" aria-label="快速回到顶部" aria-hidden="true" tabindex="-1"><span>↑</span> 顶部</button>
@@ -151,6 +154,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=20260715-15"></script>
+  <script type="module" src="/app.js?v=20260715-16"></script>
 </body>
 </html>

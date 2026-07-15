@@ -805,7 +805,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   font-weight: 800;
   letter-spacing: .11em;
 }
-.back-top-footer {
+.page-end-status { display: grid; gap: 5px; }
+.page-end-status small { color: #a2a8b0; font-family: "Noto Sans SC", sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0; }
+.page-end-actions { display: flex; gap: 10px; }
+.back-top-footer, .sync-all-footer {
   padding: 13px 19px;
   border: 1px solid var(--yellow);
   color: var(--yellow);
@@ -813,7 +816,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   font-weight: 900;
   clip-path: polygon(0 0, calc(100% - 11px) 0, 100% 11px, 100% 100%, 0 100%);
 }
-.back-top-footer:hover { color: #090a0c; background: var(--yellow); }
+.sync-all-footer { border-color: var(--cyan); color: var(--cyan); }
+.back-top-footer:hover, .sync-all-footer:hover { color: #090a0c; background: var(--yellow); }
+.sync-all-footer:hover { background: var(--cyan); }
+.back-top-footer:disabled, .sync-all-footer:disabled { cursor: wait; opacity: .55; }
 .quick-top {
   position: fixed;
   right: 22px;
@@ -940,6 +946,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .activity-game { grid-template-columns: 46px minmax(0, 1fr); }
   .activity-time { grid-column: 2; text-align: left; }
   .page-end { align-items: stretch; flex-direction: column; }
-  .back-top-footer { width: 100%; }
+  .page-end-actions { display: grid; }
+  .back-top-footer, .sync-all-footer { width: 100%; }
   .quick-top { right: 14px; }
 }
