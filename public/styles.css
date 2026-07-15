@@ -145,7 +145,7 @@ h1::before, h1::after {
 h1::before { color: var(--cyan); animation: title-glitch-a 5.8s infinite steps(1, end); }
 h1::after { color: var(--pink); animation: title-glitch-b 5.8s infinite steps(1, end); }
 .hero-copy > p {
-  max-width: 680px;
+  max-width: 720px;
   margin: 0;
   color: #242527;
   font-size: 17px;
@@ -154,43 +154,41 @@ h1::after { color: var(--pink); animation: title-glitch-b 5.8s infinite steps(1,
 }
 .hero-actions {
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
   gap: 14px;
 }
 .friend-links {
   display: grid;
   grid-template-columns: repeat(4, minmax(108px, 1fr));
-  width: min(560px, 68vw);
+  gap: 9px;
+  width: min(590px, 70vw);
   margin-top: 26px;
   color: #f7f7f2;
-  background: #080a0c;
-  box-shadow: 8px 8px 0 #00a9ad;
-  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
 }
 .friend-links-label {
   grid-column: 1 / -1;
-  padding: 5px 10px 4px;
-  border-bottom: 1px solid #343941;
-  color: var(--yellow);
-  font-size: 10px;
+  padding: 0 0 2px;
+  color: #080a0c;
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: .08em;
 }
 .friend-link {
+  --platform-accent: var(--yellow);
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 10px;
-  border: 0;
-  border-left: 1px solid #343941;
+  padding: 11px 10px 10px;
+  border: 1px solid #080a0c;
+  border-top: 4px solid var(--platform-accent);
   color: inherit;
-  background: transparent;
+  background: #080a0c;
   text-align: left;
   text-decoration: none;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
   transition: color 150ms ease, background-color 150ms ease;
 }
-.friend-link.platform-xbox { border-left: 0; }
 .friend-link:hover, .friend-link:focus-visible { color: #080a0c; background: var(--yellow); outline: none; }
 .friend-link > span:last-child { min-width: 0; display: grid; }
 .friend-link .platform-icon { width: 20px; height: 20px; flex: 0 0 20px; }
@@ -204,6 +202,10 @@ h1::after { color: var(--pink); animation: title-glitch-b 5.8s infinite steps(1,
   white-space: nowrap;
 }
 .friend-link:hover small, .friend-link:focus-visible small { color: #242527; }
+.friend-link.platform-xbox { --platform-accent: #107c10; }
+.friend-link.platform-playstation { --platform-accent: #2f7edb; }
+.friend-link.platform-nintendo { --platform-accent: #e60012; }
+.friend-link.platform-steam { --platform-accent: #66c0f4; }
 .friend-link.platform-xbox .platform-icon { color: #107c10; }
 .friend-link.platform-playstation .platform-icon { color: #2f7edb; }
 .friend-link.platform-nintendo .platform-icon { color: #e60012; }
@@ -699,10 +701,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .hero { min-height: 560px; }
   .hero::after { opacity: .45; }
   .hero-copy { margin-top: 82px; }
-  .hero-actions { flex-direction: column; gap: 0; }
-  .friend-links { width: min(560px, 100%); grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
-  .friend-link.platform-nintendo { border-left: 0; border-top: 1px solid #343941; }
-  .friend-link.platform-steam { border-top: 1px solid #343941; }
+  .hero-actions { align-items: stretch; flex-direction: column; gap: 0; }
+  .friend-links { width: min(590px, 100%); grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
   .stats { grid-template-columns: 1fr 1fr; margin-top: 0; }
   .section-heading { align-items: start; flex-direction: column; }
   .calendar-controls { width: 100%; justify-content: space-between; }
