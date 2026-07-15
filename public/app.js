@@ -226,7 +226,7 @@ function openConnection(provider) {
     $("#connectFields").innerHTML = `<label>OpenXBL API Key<input name="apiKey" type="password" autocomplete="off" required minlength="16" placeholder="粘贴 Personal API Key"></label>`;
   } else if (provider === "nintendo") {
     $("#connectTitle").textContent = "连接 Nintendo";
-    $("#connectInstructions").innerHTML = `<ol class="steps"><li>推荐选择“账号游戏记录”，它不要求家长监护，可读取累计时长和最近七天每日时长。</li><li>打开 Nintendo 官方账号授权页并登录。</li><li>长按或右键“选择此人”，复制完整回跳链接。</li></ol><p class="warning">这是 Nintendo 官方 App 使用的非公开接口，平台改版后可能需要更新。</p>`;
+    $("#connectInstructions").innerHTML = `<ol class="steps"><li>推荐选择“账号游戏记录”，它不要求家长监护，可读取累计时长和最近每日时长。</li><li>打开 Nintendo 官方账号授权页并登录。</li><li>长按或右键“选择此人”，复制完整回跳链接。</li></ol><p class="warning">使用 Nintendo Store 3.x 的非公开接口；平台再次改版时可能需要更新。</p>`;
     $("#connectFields").innerHTML = `<input type="hidden" name="stage" value="start"><label>读取方式<select name="nintendoMode"><option value="play-activity">账号游戏记录（推荐，无需家长监护）</option><option value="parental">家长监护日报与月报</option></select></label>`;
     form.querySelector("button[type=submit]").textContent = "打开 Nintendo 登录页";
   } else if (provider === "steam") {

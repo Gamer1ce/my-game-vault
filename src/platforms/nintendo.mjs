@@ -27,7 +27,9 @@ const NINTENDO_SCOPE = [
   "moonMonthlySummary"
 ].join(" ");
 const NINTENDO_PLAY_ACTIVITY_SCOPE = "openid user user.mii user.email user.links[].id";
-const NINTENDO_PLAY_ACTIVITY_USER_AGENT = "com.nintendo.znej/1.13.0 (Android/7.1.2)";
+// Nintendo Store 3.x 当前游戏记录接口。
+const NINTENDO_PLAY_ACTIVITY_USER_AGENT = "com.nintendo.znej/3.2.0 (iOS/26.0.1)";
+const NINTENDO_PLAY_ACTIVITY_URL = "https://app-api.znej.nintendo.com/api/v2.0/users/me/play_histories";
 
 function secondsToMinutes(value) {
   return Math.max(0, Math.round(Number(value || 0) / 60));
@@ -164,7 +166,11 @@ async function exchangeSessionToken(fetchFn, code, verifier, clientId) {
 async function fetchPlayActivity(fetchFn, sessionToken) {
   const tokenResponse = await fetchFn("https://accounts.nintendo.com/connect/1.0.0/api/token", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      Accept: "application/json",
+      "User-Agent": NINTENDO_PLAY_ACTIVITY_USER_AGENT
+    },
     body: JSON.stringify({
       client_id: NINTENDO_PLAY_ACTIVITY_CLIENT_ID,
       session_token: sessionToken,
@@ -173,15 +179,20 @@ async function fetchPlayActivity(fetchFn, sessionToken) {
   });
   const token = await tokenResponse.json().catch(() => ({}));
   if (!tokenResponse.ok || !token.access_token) throw new Error(token.error_description || `Nintendo 游戏记录令牌获取失败（${tokenResponse.status}）`);
-  const historyResponse = await fetchFn("https://news-api.entry.nintendo.co.jp/api/v1.1/users/me/play_histories", {
+  const historyResponse = await fetchFn(NINTENDO_PLAY_ACTIVITY_URL, {
     headers: {
       Authorization: `${token.token_type || "Bearer"} ${token.access_token}`,
       Accept: "application/json",
-      "User-Agent": NINTENDO_PLAY_ACTIVITY_USER_AGENT
+      "User-Agent": NINTENDO_PLAY_ACTIVITY_USER_AGENT,
+      "gentry-locale": "en-US"
     }
   });
   const payload = await historyResponse.json().catch(() => ({}));
-  if (!historyResponse.ok) throw new Error(payload.error_description || payload.message || `Nintendo 游戏记录读取失败（${historyResponse.status}）`);
+  if (!historyResponse.ok) {
+    const apiCode = payload.code ? `/${payload.code}` : "";
+    const detail = payload.detail || payload.error_description || payload.message;
+    throw new Error(detail ? `Nintendo 游戏记录读取失败（${historyResponse.status}${apiCode}）：${detail}` : `Nintendo 游戏记录读取失败（${historyResponse.status}${apiCode}）`);
+  }
   return { ...normalizeNintendoPlayActivity(payload), nickname: null, deviceCount: 0, skippedSections: 0, mode: "play-activity" };
 }
 
