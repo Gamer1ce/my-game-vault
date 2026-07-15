@@ -74,6 +74,12 @@ sips --resampleHeightWidth 32 32 public/icons/favicon-32-v2.png
 
 iOS 会按图标 URL 长期缓存已添加到主屏幕的旧图标，单纯覆盖同名文件通常不会更新。更换图片时应使用新的文件名并同步修改 `public/index.html` 和 `public/site.webmanifest`；部署后删除原来的主屏幕快捷方式，再从 Safari 的“分享”→“添加到主屏幕”重新添加。当前示例图像仅用于项目所有者的个人网站；公开分发或制作派生项目时，请替换为你拥有使用权的图像。
 
+### 自定义游戏好友入口
+
+首屏“查看平台档案”旁提供 Xbox、PlayStation、Nintendo 和 Steam 好友入口。Xbox 与 Steam 可以打开公开个人主页；PlayStation 在线 ID 会在点击后复制，适合粘贴到主机或 PlayStation App 搜索；Nintendo 没有通用网页好友链接，需要填写 Switch 上显示的 `SW-xxxx-xxxx-xxxx` 好友代码。
+
+制作自己的版本时，在 `public/index.html` 的 `friend-links` 区域替换公开昵称、好友代码和个人主页地址，并同时修改 `aria-label`。这些内容会直接展示给所有访客，只能填写愿意公开的游戏昵称或好友代码；不要把邮箱、XUID、API Key、NPSSO 或 Nintendo 授权链接放在这里。
+
 ## 连接游戏平台
 
 连接成功后会立即同步一次。服务启动后也会自动检查已连接的平台，持续运行时每 6 小时再次同步；也可在“数据来源”中手动同步。

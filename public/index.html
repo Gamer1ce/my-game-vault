@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260715-5">
+  <link rel="stylesheet" href="/styles.css?v=20260715-6">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
@@ -24,8 +24,25 @@
     <div class="hero-copy">
       <span class="hero-kicker">/// PLAYER ONE // CROSS-PLATFORM ARCHIVE</span>
       <h1 data-text="我的游戏生涯" aria-label="我的游戏生涯">我的游戏生涯</h1>
-      <p>每一次启动游戏，都会在时间里留下坐标。这里收录我在 Xbox、PlayStation、Nintendo 与 Steam 上真正玩过的作品，把官方累计时长、成就进度与每日足迹整理成一份持续生长的个人游戏年表。</p>
-      <a class="primary hero-action" href="#connections">查看平台档案</a>
+      <p>有些夜晚留在奖杯弹出的清响里，有些周末沉进一张没有走完的地图。这里把我散落在 Xbox、PlayStation、Nintendo 与 Steam 的旅程重新拼在一起：走过的世界、投入的小时，以及某一天曾与一款游戏相遇的证据。</p>
+      <div class="hero-actions">
+        <a class="primary hero-action" href="#connections">查看平台档案</a>
+        <div class="friend-links" id="friendLinks" aria-label="添加我的游戏好友">
+          <span class="friend-links-label">添加游戏好友</span>
+          <a class="friend-link platform-xbox" href="https://www.xbox.com/en-US/play/user/Gamer1ce" target="_blank" rel="noopener noreferrer" aria-label="在 Xbox 添加 Gamer1ce" title="打开 Xbox 个人资料">
+            <span data-platform-icon="xbox"></span><span><strong>Xbox</strong><small>Gamer1ce</small></span>
+          </a>
+          <button class="friend-link platform-playstation" type="button" data-copy-id="frozen-forest57" aria-label="复制 PlayStation 在线 ID frozen-forest57" title="复制 PlayStation 在线 ID">
+            <span data-platform-icon="playstation"></span><span><strong>PlayStation</strong><small>frozen-forest57</small></span>
+          </button>
+          <button class="friend-link platform-nintendo" type="button" data-copy-id="SW-7590-5159-5218" aria-label="复制 Nintendo 好友代码 SW-7590-5159-5218" title="复制 Nintendo 好友代码">
+            <span data-platform-icon="nintendo"></span><span><strong>Nintendo</strong><small>SW-7590-5159-5218</small></span>
+          </button>
+          <a class="friend-link platform-steam" href="https://steamcommunity.com/profiles/76561198812881896/" target="_blank" rel="noopener noreferrer" aria-label="在 Steam 添加好友" title="打开 Steam 个人资料">
+            <span data-platform-icon="steam"></span><span><strong>Steam</strong><small>青春网瘾少年</small></span>
+          </a>
+        </div>
+      </div>
     </div>
     <div class="hero-telemetry" aria-hidden="true"><span>SYS.GAME_ARCHIVE</span><span>LOCAL_NODE // 127.0.0.1</span><span>DATA_PULSE // ACTIVE</span></div>
   </header>
@@ -104,6 +121,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=20260715-5"></script>
+  <script type="module" src="/app.js?v=20260715-6"></script>
 </body>
 </html>

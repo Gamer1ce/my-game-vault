@@ -152,6 +152,62 @@ h1::after { color: var(--pink); animation: title-glitch-b 5.8s infinite steps(1,
   font-weight: 600;
   line-height: 1.75;
 }
+.hero-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+}
+.friend-links {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(108px, 1fr));
+  width: min(560px, 68vw);
+  margin-top: 26px;
+  color: #f7f7f2;
+  background: #080a0c;
+  box-shadow: 8px 8px 0 #00a9ad;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+}
+.friend-links-label {
+  grid-column: 1 / -1;
+  padding: 5px 10px 4px;
+  border-bottom: 1px solid #343941;
+  color: var(--yellow);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.friend-link {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 0;
+  border-left: 1px solid #343941;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+  text-decoration: none;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+.friend-link.platform-xbox { border-left: 0; }
+.friend-link:hover, .friend-link:focus-visible { color: #080a0c; background: var(--yellow); outline: none; }
+.friend-link > span:last-child { min-width: 0; display: grid; }
+.friend-link .platform-icon { width: 20px; height: 20px; flex: 0 0 20px; }
+.friend-link strong { font-size: 12px; line-height: 1.1; }
+.friend-link small {
+  overflow: hidden;
+  color: #aeb4bd;
+  font-size: 9px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.friend-link:hover small, .friend-link:focus-visible small { color: #242527; }
+.friend-link.platform-xbox .platform-icon { color: #107c10; }
+.friend-link.platform-playstation .platform-icon { color: #2f7edb; }
+.friend-link.platform-nintendo .platform-icon { color: #e60012; }
+.friend-link.platform-steam .platform-icon { color: #66c0f4; }
 .primary, .ghost, .small-button, .month-nav button, .calendar-toggle {
   border-radius: 0;
   clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
@@ -640,9 +696,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .provider-actions { grid-column: 3; justify-content: flex-start; }
 }
 @media (max-width: 800px) {
-  .hero { min-height: 440px; }
+  .hero { min-height: 560px; }
   .hero::after { opacity: .45; }
   .hero-copy { margin-top: 82px; }
+  .hero-actions { flex-direction: column; gap: 0; }
+  .friend-links { width: min(560px, 100%); grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
+  .friend-link.platform-nintendo { border-left: 0; border-top: 1px solid #343941; }
+  .friend-link.platform-steam { border-top: 1px solid #343941; }
   .stats { grid-template-columns: 1fr 1fr; margin-top: 0; }
   .section-heading { align-items: start; flex-direction: column; }
   .calendar-controls { width: 100%; justify-content: space-between; }
@@ -650,7 +710,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .providers { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
-  .hero { min-height: 420px; padding-top: 20px; }
+  .hero { min-height: 650px; padding-top: 20px; }
   .brand { font-size: 11px; }
   .ghost { padding: 8px 9px; font-size: 11px; }
   h1 { font-size: 46px; }

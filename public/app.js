@@ -33,6 +33,34 @@ function platformIcon(platform) {
 document.querySelectorAll("#tabs button[data-platform]").forEach((button) => {
   if (button.dataset.platform !== "all") button.insertAdjacentHTML("afterbegin", platformIcon(button.dataset.platform));
 });
+document.querySelectorAll("[data-platform-icon]").forEach((holder) => {
+  holder.innerHTML = platformIcon(holder.dataset.platformIcon);
+});
+
+async function copyPublicId(value) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(value);
+    else {
+      const field = document.createElement("textarea");
+      field.value = value;
+      field.setAttribute("readonly", "");
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.append(field);
+      field.select();
+      if (!document.execCommand("copy")) throw new Error("copy failed");
+      field.remove();
+    }
+    toast(`已复制：${value}`);
+  } catch {
+    toast(`请手动添加：${value}`);
+  }
+}
+
+$("#friendLinks").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-copy-id]");
+  if (button) copyPublicId(button.dataset.copyId);
+});
 
 function posterCandidates(game) {
   const urls = [];
