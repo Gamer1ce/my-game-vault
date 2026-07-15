@@ -19,7 +19,7 @@ import { cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "./sr
 import { isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(root, "data");
+const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
 mkdirSync(dataDir, { recursive: true });
 const db = new DatabaseSync(path.join(dataDir, "games.db"));
 const credentials = new CredentialStore(dataDir);

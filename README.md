@@ -2,6 +2,8 @@
 
 > 搭建属于自己的全平台游戏记录网站。
 
+<img src="public/icons/app-icon-192.png" width="128" height="128" alt="My Game Vault 自定义主屏幕图标">
+
 My Game Vault 是一个本地优先的 Xbox、PlayStation、Nintendo 与 Steam 游戏档案。它把不同平台的累计时长、成就、海报、最后游玩日期和 MC 评分归一到同一个赛博朋克风格页面，同时明确区分“官方确切数据”和“无法从接口还原的数据”。
 
 ## 界面预览
@@ -45,6 +47,32 @@ npm start
 ```bash
 npm test
 ```
+
+### 自定义主屏幕图标
+
+项目已配置 Web App Manifest、浏览器 favicon 和 iPhone/iPad 的 Apple Touch Icon。当前图标由项目所有者提供的 Xbox Design Lab 风格图片居中裁切而成，保留了中央粉色手柄与闪电、宝箱、草莓等元素；图标本身没有预先裁成圆角，系统会按设备样式自动生成圆角遮罩。
+
+需要换成自己的图片时，准备一张至少 `512 × 512` 的正方形 PNG，并替换下列文件：
+
+- `public/icons/app-icon-512.png`：Android/PWA 与高清显示
+- `public/icons/app-icon-192.png`：Android/PWA 小图标
+- `public/icons/apple-touch-icon.png`：iPhone/iPad，尺寸 `180 × 180`
+- `public/icons/favicon-32.png`：浏览器标签页，尺寸 `32 × 32`
+
+也可以在 macOS 使用 `sips` 从一张正方形原图生成各尺寸：
+
+```bash
+cp my-square-icon.png public/icons/app-icon-512.png
+sips --resampleHeightWidth 512 512 public/icons/app-icon-512.png
+cp public/icons/app-icon-512.png public/icons/app-icon-192.png
+cp public/icons/app-icon-512.png public/icons/apple-touch-icon.png
+cp public/icons/app-icon-512.png public/icons/favicon-32.png
+sips --resampleHeightWidth 192 192 public/icons/app-icon-192.png
+sips --resampleHeightWidth 180 180 public/icons/apple-touch-icon.png
+sips --resampleHeightWidth 32 32 public/icons/favicon-32.png
+```
+
+iOS 会缓存已添加到主屏幕的旧图标。部署新图标后，需要删除原来的主屏幕快捷方式，再从 Safari 的“分享”→“添加到主屏幕”重新添加。当前示例图像仅用于项目所有者的个人网站；公开分发或制作派生项目时，请替换为你拥有使用权的图像。
 
 ## 连接游戏平台
 
@@ -158,6 +186,7 @@ PUBLIC_MODE=1 \
 ADMIN_USERNAME=admin \
 ADMIN_PASSWORD='请换成至少16位的随机密码' \
 TRUST_PROXY=1 \
+DATA_DIR='/你的持久化磁盘/game-vault-data' \
 npm start
 ```
 
@@ -167,6 +196,18 @@ npm start
 - 管理员登录成功后使用 `HttpOnly`、`SameSite=Strict` 的 8 小时会话；写操作还会检查同源请求。连续输错会触发 15 分钟登录限流。
 - 服务会返回 CSP、禁止 iframe、禁止 MIME 嗅探等基础安全响应头；访客拿不到平台令牌或 API Key，连接错误详情也只对管理员显示。
 - 数据库、平台密钥、管理员凭据和 `data/public-mode` 均不会提交到 GitHub。公开仓库只能发布源码和脱敏截图，不能发布运行中的 `data` 目录。
+
+### 为什么公网网页会没有游戏数据
+
+游戏记录存放在 SQLite 文件 `data/games.db`，它被 `.gitignore` 排除，因此推送 GitHub 或只部署前端源码不会自动上传你的记录。只读保护不会隐藏游戏：`GET /api/games` 对访客保持公开，只有写操作需要管理员登录。
+
+公网分享必须运行完整的 Node.js 服务，不能只使用 GitHub Pages 一类的静态托管。云端首次启动会建立一个新的空数据库，需要完成以下任一方案：
+
+1. **推荐：在公网实例重新同步。** 为 `DATA_DIR` 挂载持久化磁盘，部署后用管理员账号登录网站，重新连接各平台，并导入需要补齐的 PlayStation 官方数据副本。
+2. **迁移现有记录。** 先停止本机和公网服务，把本机 `data/games.db` 复制到公网服务器的 `DATA_DIR`，再重新启动。该文件包含游戏、成就、评分和日历，不包含平台 API Key；平台凭据应在公网实例重新连接，不建议直接迁移 `credentials.enc` 和 `.credential-key`。
+3. **用本机隧道分享。** 如果公网地址反向代理到本机 `npm start`，它会直接读取本机的 433 款记录；电脑关机或 Node 服务停止后，朋友将无法访问。
+
+部署后可访问 `https://你的域名/api/games` 检查：看到包含 `games` 数组的 JSON 才表示公网前后端连接正确。当前本机数据库仍有 433 款游戏；如果公网页面为空，说明公网地址没有指向这个数据库，而不是记录被只读模式删除。
 
 也可以在本机创建文件标记来开启保护：
 

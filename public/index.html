@@ -3,7 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#fcee0a">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="游戏时光库">
   <title>游戏时光库</title>
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
@@ -47,7 +54,7 @@
     </section>
     <section class="games" id="games"></section>
     <p class="score-attribution hidden" id="scoreAttribution">MC 评分优先由 <a href="https://rawg.io/" target="_blank" rel="noopener noreferrer">RAWG</a> 提供，缺失时从 <a href="https://www.metacritic.com/game/" target="_blank" rel="noopener noreferrer">Metacritic</a> 公开游戏页补全。</p>
-    <section class="empty hidden" id="empty"><h2>还没有官方游戏记录</h2><p>连接游戏平台，或者导入平台提供的数据文件。</p></section>
+    <section class="empty hidden" id="empty"><h2 id="emptyTitle">还没有官方游戏记录</h2><p id="emptyMessage">连接游戏平台，或者导入平台提供的数据文件。</p></section>
     <section class="providers" id="connections">
       <div><h2 data-text="数据来源" aria-label="数据来源">数据来源</h2><p class="section-note">连接信息只保存在本机。每个平台提供的数据范围不同。</p></div>
       <div id="providerList" class="provider-list"></div>

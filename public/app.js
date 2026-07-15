@@ -112,6 +112,11 @@ function render() {
     ${posterMarkup(game)}
     <div class="game-content"><div class="game-top"><span class="badge">${platformIcon(game.platform)}<span>${platformNames[game.platform]}</span></span><span class="source">${game.source === "manual" ? "历史记录" : game.source.endsWith("-sync") ? "官方同步" : "官方文件"}</span></div>
     <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours">${formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`).join("");
+  const publicInstanceEmpty = state.security.publicMode && state.games.length === 0;
+  $("#emptyTitle").textContent = publicInstanceEmpty ? "公网实例尚未载入游戏数据" : "还没有官方游戏记录";
+  $("#emptyMessage").textContent = publicInstanceEmpty
+    ? (state.security.canManage ? "请在此服务器上同步平台，导入官方文件，或者迁移现有 games.db。" : "网站目前是只读的；需要管理员把游戏数据库同步或迁移到这台服务器。")
+    : "连接游戏平台，或者导入平台提供的数据文件。";
   $("#empty").classList.toggle("hidden", games.length > 0);
   $("#scoreAttribution").classList.toggle("hidden", !state.games.some((game) => game.metacriticScore !== null && game.metacriticScore !== undefined && Number.isInteger(Number(game.metacriticScore))));
 }
