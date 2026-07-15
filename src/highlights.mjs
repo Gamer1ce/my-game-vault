@@ -70,7 +70,7 @@ export function listHighlights(directory, limit = 500) {
       // 文件可能恰好在扫描时被移动；下一次刷新会重新读取。
     }
   }
-  return items.sort((a, b) => b.modifiedAt.localeCompare(a.modifiedAt) || a.filename.localeCompare(b.filename, "zh-CN")).slice(0, limit);
+  return items.sort((a, b) => a.size - b.size || b.modifiedAt.localeCompare(a.modifiedAt) || a.filename.localeCompare(b.filename, "zh-CN")).slice(0, limit);
 }
 
 export const supportedHighlightFormats = [...mediaExtensions.keys()];

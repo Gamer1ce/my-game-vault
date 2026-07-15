@@ -24,6 +24,21 @@ test("精彩时刻只列出受支持的普通媒体文件", () => {
   }
 });
 
+test("精彩时刻按文件大小从小到大排列", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "game-vault-highlight-size-"));
+  try {
+    writeFileSync(path.join(directory, "大型.webm"), Buffer.alloc(80));
+    writeFileSync(path.join(directory, "小型.webm"), Buffer.alloc(8));
+    writeFileSync(path.join(directory, "中型.webm"), Buffer.alloc(32));
+
+    const items = listHighlights(directory);
+    assert.deepEqual(items.map((item) => item.filename), ["小型.webm", "中型.webm", "大型.webm"]);
+    assert.deepEqual(items.map((item) => item.size), [8, 32, 80]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("文件名会成为适合展示的标题", () => {
   assert.equal(highlightTitle("赛博朋克2077_精彩击杀.mp4"), "赛博朋克2077 精彩击杀");
   assert.equal(highlightTitle("Screenshot-2026-07-15.jpg"), "Screenshot-2026-07-15");
