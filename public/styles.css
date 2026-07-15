@@ -390,6 +390,18 @@ main {
 .highlight-meta { min-width: 0; display: grid; gap: 6px; padding: 15px 16px 17px; }
 .highlight-meta strong { overflow: hidden; font-size: 15px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .highlight-meta small { color: var(--muted); font-family: "Rajdhani", "Noto Sans SC", sans-serif; font-size: 11px; letter-spacing: .035em; }
+.highlight-more-wrap { display: flex; justify-content: center; margin-top: 22px; }
+.highlight-more {
+  min-width: min(360px, 100%);
+  padding: 14px 24px;
+  border: 1px solid var(--cyan);
+  color: var(--ink);
+  background: #0a0d11;
+  font-size: 14px;
+  font-weight: 800;
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+}
+.highlight-more:hover, .highlight-more:focus-visible { border-color: var(--yellow); color: var(--yellow); background: #11130d; }
 .highlight-empty {
   padding: 52px 24px;
   border: 1px dashed #3d4650;

@@ -1,6 +1,8 @@
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const state = { games: [], highlights: [], highlightStorage: { available: true, customDirectory: false }, recentActivity: { days: [], totalMinutes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const HIGHLIGHT_INITIAL_COUNT = 4;
+const HIGHLIGHT_PAGE_SIZE = 8;
+const state = { games: [], highlights: [], visibleHighlights: HIGHLIGHT_INITIAL_COUNT, highlightStorage: { available: true, customDirectory: false }, recentActivity: { days: [], totalMinutes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -201,7 +203,8 @@ function formatFileSize(bytes) {
 
 function renderHighlights() {
   $("#highlightCount").textContent = `MEDIA // ${String(state.highlights.length).padStart(2, "0")}`;
-  $("#highlightGrid").innerHTML = state.highlights.map((item, index) => {
+  const visibleCount = Math.min(state.visibleHighlights, state.highlights.length);
+  $("#highlightGrid").innerHTML = state.highlights.slice(0, visibleCount).map((item, index) => {
     const url = safeHighlightUrl(item.url);
     if (!url) return "";
     const title = escapeHtml(item.title || item.filename || "精彩时刻");
@@ -211,6 +214,11 @@ function renderHighlights() {
       : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
     return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${index}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)}</small></span></button></article>`;
   }).join("");
+  const remaining = Math.max(0, state.highlights.length - visibleCount);
+  const loadMore = $("#highlightLoadMore");
+  loadMore.classList.toggle("hidden", remaining === 0);
+  loadMore.textContent = remaining > 0 ? `显示更多（再展示 ${Math.min(HIGHLIGHT_PAGE_SIZE, remaining)} 个）` : "显示更多";
+  loadMore.setAttribute("aria-label", remaining > 0 ? `显示更多精彩时刻，接下来展示 ${Math.min(HIGHLIGHT_PAGE_SIZE, remaining)} 个` : "所有精彩时刻已显示");
   const emptyTitle = $("#highlightEmpty strong");
   const emptyMessage = $("#highlightEmpty p");
   if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
@@ -229,6 +237,7 @@ function renderHighlights() {
 async function loadHighlights() {
   const result = await api("/api/highlights");
   state.highlights = Array.isArray(result.highlights) ? result.highlights : [];
+  state.visibleHighlights = HIGHLIGHT_INITIAL_COUNT;
   state.highlightStorage = { available: result.available !== false, customDirectory: result.customDirectory === true };
   renderHighlights();
 }
@@ -322,6 +331,7 @@ $("#toggleCalendar").addEventListener("click", () => {
 });
 $("#activityCalendar").addEventListener("click", (event) => { const button = event.target.closest("button[data-date]"); if (button) openActivity(button.dataset.date); });
 $("#highlightGrid").addEventListener("click", (event) => { const button = event.target.closest("button[data-highlight-index]"); if (button) openHighlight(Number(button.dataset.highlightIndex)); });
+$("#highlightLoadMore").addEventListener("click", () => { state.visibleHighlights += HIGHLIGHT_PAGE_SIZE; renderHighlights(); });
 $("#highlightDialog").addEventListener("close", () => { const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
 $("#tabs").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#tabs .active").classList.remove("active"); button.classList.add("active"); state.platform = button.dataset.platform; render(); });
 $("#search").addEventListener("input", (event) => { state.query = event.target.value.trim().toLowerCase(); render(); });
