@@ -352,6 +352,7 @@ main {
 .calendar-day.heat-4, .heat-legend .heat-4 { background: var(--yellow); color: #101114; }
 .calendar-day.has-history { color: #ff9bb1; border-color: var(--pink); background: #211318; }
 .heat-legend { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 14px; color: var(--muted); font-size: 10px; }
+.activity-coverage { margin: 10px 0 0; color: #737b86; font-family: "Rajdhani", "Noto Sans SC", sans-serif; font-size: 11px; letter-spacing: .04em; text-align: right; }
 .heat-legend i { display: block; width: 18px; height: 11px; border: 1px solid #353a41; }
 .heat-legend .heat-0 { background: #0e1013; }
 

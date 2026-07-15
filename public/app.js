@@ -143,11 +143,16 @@ function renderActivity() {
     const activity = activityByDate.get(date);
     const total = activity?.totalMinutes || 0;
     const historical = activity?.historicalCount || 0;
-    const label = total ? formatPlainTime(total) : historical ? `${historical} 款记录` : "—";
-    cells.push(`<button class="calendar-day heat-${calendarLevel(total, max)}${historical && !total ? " has-history" : ""}" data-date="${date}" title="${date} · ${total ? formatPlainTime(total) : historical ? `${historical} 款最后游玩记录` : "无记录"}"><span>${String(day).padStart(2, "0")}</span><strong>${label}</strong></button>`);
+    const approximate = total > 0 && Number(activity?.detectedMinutes || 0) > 0;
+    const label = total ? `${approximate ? "约 " : ""}${formatPlainTime(total)}` : historical ? `${historical} 款记录` : "—";
+    cells.push(`<button class="calendar-day heat-${calendarLevel(total, max)}${historical && !total ? " has-history" : ""}" data-date="${date}" title="${date} · ${total ? label : historical ? `${historical} 款最后游玩记录` : "无记录"}"><span>${String(day).padStart(2, "0")}</span><strong>${label}</strong></button>`);
   }
   $("#activityCalendar").innerHTML = cells.join("");
   $("#calendarBody").hidden = state.calendarHidden;
+  const exactDays = state.activity.days.filter((day) => Number(day.exactMinutes) > 0).length;
+  const detectedDays = state.activity.days.filter((day) => Number(day.detectedMinutes) > 0).length;
+  const historyRows = state.activity.days.reduce((sum, day) => sum + Number(day.historicalCount || 0), 0);
+  $("#activityCoverage").textContent = `本月覆盖：平台逐日 ${exactDays} 天 · 累计差值 ${detectedDays} 天 · 最近游玩 ${historyRows} 条`;
   $("#toggleCalendar").textContent = state.calendarHidden ? "显示日历" : "隐藏日历";
   $("#toggleCalendar").setAttribute("aria-expanded", String(!state.calendarHidden));
 }
@@ -174,7 +179,12 @@ function openActivity(date) {
       (result[game.platform] ||= []).push(game); return result;
     }, {}));
     const hasHistoricalOnly = day.games.some((game) => game.eventType === "lastPlayed" && !game.minutes);
-    $("#activityDetails").innerHTML = `${hasHistoricalOnly ? `<p class="activity-explainer">平台历史只能确认这一天最后玩过该游戏，无法还原当日具体分钟数；下方同时显示游戏的官方累计时长。</p>` : ""}${groups.map(([platform, games]) => `<section class="activity-platform"><div class="activity-platform-head"><strong>${platformIcon(platform)}${platformNames[platform]}</strong><span>${games.some((game) => game.minutes > 0) ? formatPlainTime(games.reduce((sum, game) => sum + game.minutes, 0)) : `${games.length} 款记录`}</span></div>${games.map((game) => `<div class="activity-game">${posterMarkup(game, "activity-poster")}<div><strong>${escapeHtml(game.title)}</strong><small>${platformNames[game.platform]}</small></div><div class="activity-time ${game.minutes ? "" : "history-label"}"><b>${game.minutes ? `当日 ${formatPlainTime(game.minutes)}` : "当日时长未知"}</b><small>${Number(game.lifetimeMinutes) > 0 ? `累计 ${formatPlainTime(Number(game.lifetimeMinutes))}` : "累计时长暂无官方数据"}</small></div></div>`).join("")}</section>`).join("")}`;
+    const hasDetected = day.games.some((game) => game.precision === "detected" && game.minutes);
+    const explanation = [
+      hasDetected ? "“同步检测”是累计时长相对上次同步的增量，并优先归到平台返回的最近游玩日期。" : "",
+      hasHistoricalOnly ? "“最近玩过”只能确认日期，无法还原当日分钟数。" : ""
+    ].filter(Boolean).join("");
+    $("#activityDetails").innerHTML = `${explanation ? `<p class="activity-explainer">${explanation}</p>` : ""}${groups.map(([platform, games]) => `<section class="activity-platform"><div class="activity-platform-head"><strong>${platformIcon(platform)}${platformNames[platform]}</strong><span>${games.some((game) => game.minutes > 0) ? formatPlainTime(games.reduce((sum, game) => sum + game.minutes, 0)) : `${games.length} 款记录`}</span></div>${games.map((game) => `<div class="activity-game">${posterMarkup(game, "activity-poster")}<div><strong>${escapeHtml(game.title)}</strong><small>${platformNames[game.platform]}</small></div><div class="activity-time ${game.minutes ? "" : "history-label"}"><b>${game.minutes ? `${game.precision === "exact" ? "当日确切" : "同步检测"} ${formatPlainTime(game.minutes)}` : "当日时长未知"}</b><small>${Number(game.lifetimeMinutes) > 0 ? `累计 ${formatPlainTime(Number(game.lifetimeMinutes))}` : "累计时长暂无官方数据"}</small></div></div>`).join("")}</section>`).join("")}`;
   }
   $("#activityDialog").showModal();
 }

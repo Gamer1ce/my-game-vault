@@ -15,7 +15,7 @@ import { createNintendoConnector } from "./src/platforms/nintendo.mjs";
 import { createSteamConnector } from "./src/platforms/steam.mjs";
 import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
-import { cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "./src/activity.mjs";
+import { activityDate, cumulativeDelta, groupActivityRows, monthEnd, shanghaiDate } from "./src/activity.mjs";
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +87,7 @@ db.exec(`
     external_id TEXT,
     title TEXT NOT NULL,
     minutes INTEGER NOT NULL DEFAULT 0 CHECK(minutes >= 0),
+    precision TEXT NOT NULL DEFAULT 'detected' CHECK(precision IN ('exact', 'detected')),
     cover_url TEXT,
     store_url TEXT,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -150,6 +151,10 @@ if (!gameColumns.includes("achievements_total")) db.exec("ALTER TABLE games ADD 
 if (!gameColumns.includes("achievements_updated_at")) db.exec("ALTER TABLE games ADD COLUMN achievements_updated_at TEXT");
 const activityColumns = db.prepare("PRAGMA table_info(daily_activity)").all().map((column) => column.name);
 if (!activityColumns.includes("store_url")) db.exec("ALTER TABLE daily_activity ADD COLUMN store_url TEXT");
+if (!activityColumns.includes("precision")) {
+  db.exec("ALTER TABLE daily_activity ADD COLUMN precision TEXT NOT NULL DEFAULT 'detected'");
+  db.exec("UPDATE daily_activity SET precision = 'exact' WHERE platform = 'nintendo'");
+}
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -276,21 +281,23 @@ const upsertSyncedGame = db.prepare(`
 const findGameByExternalId = db.prepare("SELECT minutes FROM games WHERE platform = ? AND external_id = ?");
 const findGameByTitle = db.prepare("SELECT minutes FROM games WHERE platform = ? AND external_id IS NULL AND title = ? COLLATE NOCASE");
 const upsertDailyActivity = db.prepare(`
-  INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, cover_url, store_url)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, precision, cover_url, store_url)
+  VALUES (?, ?, ?, ?, ?, ?, 'detected', ?, ?)
   ON CONFLICT(date, platform, game_key) DO UPDATE SET
     title = excluded.title,
     minutes = daily_activity.minutes + excluded.minutes,
+    precision = CASE WHEN daily_activity.precision = 'exact' THEN 'exact' ELSE excluded.precision END,
     cover_url = COALESCE(excluded.cover_url, daily_activity.cover_url),
     store_url = COALESCE(excluded.store_url, daily_activity.store_url),
     updated_at = CURRENT_TIMESTAMP
 `);
 const setDailyActivity = db.prepare(`
-  INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, cover_url, store_url)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, precision, cover_url, store_url)
+  VALUES (?, ?, ?, ?, ?, ?, 'exact', ?, ?)
   ON CONFLICT(date, platform, game_key) DO UPDATE SET
     title = excluded.title,
     minutes = excluded.minutes,
+    precision = 'exact',
     cover_url = COALESCE(excluded.cover_url, daily_activity.cover_url),
     store_url = COALESCE(excluded.store_url, daily_activity.store_url),
     updated_at = CURRENT_TIMESTAMP
@@ -360,7 +367,7 @@ function publicConnection(provider) {
   } : { provider, connected: false, connectedAt: null, lastSyncAt: null, lastError: null, itemCount: 0 };
 }
 
-function saveSyncedGames(games, source) {
+function saveSyncedGames(games, source, { recordDelta = true } = {}) {
   let addedMinutes = 0;
   db.exec("BEGIN IMMEDIATE");
   try {
@@ -370,8 +377,8 @@ function saveSyncedGames(games, source) {
         : findGameByTitle.get(game.platform, game.title);
       const delta = cumulativeDelta(previous?.minutes, game.minutes);
       const gameKey = game.externalId || String(game.title).trim().toLocaleLowerCase("zh-CN");
-      if (delta > 0) {
-        upsertDailyActivity.run(shanghaiDate(), game.platform, gameKey, game.externalId || null, game.title, delta, game.coverUrl || null, game.storeUrl || null);
+      if (recordDelta && delta > 0) {
+        upsertDailyActivity.run(activityDate(game.lastPlayed), game.platform, gameKey, game.externalId || null, game.title, delta, game.coverUrl || null, game.storeUrl || null);
         addedMinutes += delta;
       }
       if (/^\d{4}-\d{2}-\d{2}$/.test(game.lastPlayed || "")) {
@@ -529,12 +536,12 @@ app.get("/api/activity", (req, res) => {
   const next = monthEnd(month);
   const rows = db.prepare(`
     SELECT d.date, d.platform, d.external_id AS externalId, d.title, d.minutes, d.cover_url AS coverUrl, d.store_url AS storeUrl,
-           'minutes' AS eventType,
+           'minutes' AS eventType, d.precision,
            COALESCE((SELECT MAX(g.minutes) FROM games g WHERE g.platform = d.platform AND ((d.external_id IS NOT NULL AND g.external_id = d.external_id) OR (d.external_id IS NULL AND g.title = d.title COLLATE NOCASE))), 0) AS lifetimeMinutes
     FROM daily_activity d WHERE d.date >= ? AND d.date < ? AND d.minutes > 0
     UNION ALL
     SELECT e.date, e.platform, e.external_id AS externalId, e.title, 0 AS minutes, e.cover_url AS coverUrl, e.store_url AS storeUrl,
-           'lastPlayed' AS eventType,
+           'lastPlayed' AS eventType, 'history' AS precision,
            COALESCE((SELECT MAX(g.minutes) FROM games g WHERE g.platform = e.platform AND ((e.external_id IS NOT NULL AND g.external_id = e.external_id) OR (e.external_id IS NULL AND g.title = e.title COLLATE NOCASE))), 0) AS lifetimeMinutes
     FROM play_events e WHERE e.date >= ? AND e.date < ?
     ORDER BY date, minutes DESC, title COLLATE NOCASE
@@ -757,7 +764,7 @@ app.post("/api/import", upload.single("file"), async (req, res, next) => {
     else return res.status(400).json({ error: "仅支持 .xlsx、.csv 或 .json" });
 
     const { records, errors } = normalizeRows(rows, req.body.platform);
-    saveSyncedGames(records.map((item) => ({ ...item, coverUrl: null, storeUrl: null, notes: "官方数据副本" })), "official-export");
+    saveSyncedGames(records.map((item) => ({ ...item, coverUrl: null, storeUrl: null, notes: "官方数据副本" })), "official-export", { recordDelta: false });
     res.json({ imported: records.length, skipped: errors.length, errors: errors.slice(0, 20) });
   } catch (error) {
     next(error);
