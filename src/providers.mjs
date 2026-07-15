@@ -18,9 +18,9 @@ export const providers = [
   {
     id: "nintendo",
     name: "Nintendo",
-    mode: "experimental-parental-controls",
+    mode: "play-activity-or-parental-controls",
     status: "可连接",
-    detail: "通过 Nintendo 家长监护账号授权读取已绑定主机的日报和月报；仅覆盖家长监护保留的历史。"
+    detail: "推荐使用 Nintendo 账号游戏记录读取累计时长和最近七天明细，无需家长监护；也保留家长监护日报/月报模式。"
   },
   {
     id: "steam",

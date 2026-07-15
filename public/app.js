@@ -1,6 +1,6 @@
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-const state = { games: [], platform: "all", query: "", providers: [], connections: [], calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const state = { games: [], stats: null, platform: "all", query: "", providers: [], connections: [], calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -72,34 +72,39 @@ function posterMarkup(game, className = "") {
   const candidates = posterCandidates(game);
   const data = encodeURIComponent(JSON.stringify(candidates));
   const storeUrl = officialStoreUrl(game);
-  return `<a class="poster-link" href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener noreferrer" aria-label="在 ${platformNames[game.platform]} 官方商店查看 ${escapeHtml(game.title)}" title="前往官方商店"><div class="game-poster ${className}"><span>${platformNames[game.platform]}</span>${candidates.length ? `<img class="poster-image" src="${escapeHtml(candidates[0])}" data-posters="${data}" data-poster-index="0" alt="${escapeHtml(game.title)} 海报" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : ""}<b class="store-hint">官方商店 ↗</b></div></a>`;
+  return `<a class="poster-link" href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener noreferrer" aria-label="在 ${platformNames[game.platform]} 官方商店查看 ${escapeHtml(game.title)}" title="前往官方商店"><div class="game-poster ${className}"><span>${platformNames[game.platform]}</span>${candidates.length ? `<img class="poster-image" src="${escapeHtml(candidates[0])}" data-posters="${data}" data-poster-index="0" alt="${escapeHtml(game.title)} 海报" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : ""}<b class="store-hint">打开商店</b></div></a>`;
 }
 
 function render() {
   const totals = Object.fromEntries(Object.keys(platformNames).map((platform) => [platform, state.games.filter((game) => game.platform === platform).reduce((sum, game) => sum + game.minutes, 0)]));
   const all = state.games.reduce((sum, game) => sum + game.minutes, 0);
-  const achievements = state.games.reduce((sum, game) => sum + Math.max(0, Number(game.achievementsEarned || 0)), 0);
-  const completedGames = state.games.filter((game) => Number(game.achievementsTotal) > 0 && Number(game.achievementsEarned) >= Number(game.achievementsTotal)).length;
-  const latest = state.games.map((game) => game.updatedAt || "").sort().at(-1)?.slice(0, 10) || "—";
+  const summary = state.stats || {
+    totalMinutes: all,
+    gameCount: state.games.length,
+    achievementsEarned: state.games.reduce((sum, game) => sum + Math.max(0, Number(game.achievementsEarned || 0)), 0),
+    completedGames: state.games.filter((game) => Number(game.achievementsTotal) > 0 && Number(game.achievementsEarned) >= Number(game.achievementsTotal)).length,
+    primaryPlatform: Object.entries(totals).sort((a,b) => b[1] - a[1])[0]?.[0] || null,
+    latest: state.games.map((game) => game.updatedAt || "").sort().at(-1)?.slice(0, 10) || null
+  };
   $("#stats").innerHTML = [
-    ["总游戏时长", `${Math.floor(all / 60).toLocaleString()} 小时`],
-    ["已记录游戏", `${state.games.length} 款`],
-    ["已解锁成就", `${achievements.toLocaleString()} 个`],
-    ["全成就游戏", `${completedGames} 款`],
-    ["游玩最多平台", all > 0 ? platformNames[Object.entries(totals).sort((a,b) => b[1] - a[1])[0]?.[0]] : "—"],
-    ["最近同步日期", latest]
-  ].map(([label,value], index) => `<div class="stat"><small class="stat-label" data-text="0${index + 1} // ${escapeHtml(label)}">0${index + 1} // ${escapeHtml(label)}</small><strong class="stat-value" data-text="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
+    ["总游戏时长", `${Math.floor(Number(summary.totalMinutes || 0) / 60).toLocaleString()} 小时`],
+    ["已记录游戏", `${Number(summary.gameCount || 0)} 款`],
+    ["已解锁成就", `${Number(summary.achievementsEarned || 0).toLocaleString()} 个`],
+    ["全成就游戏", `${Number(summary.completedGames || 0)} 款`],
+    ["游玩最多平台", summary.primaryPlatform ? platformNames[summary.primaryPlatform] : "—"],
+    ["最近同步日期", summary.latest || "—"]
+  ].map(([label,value], index) => `<div class="stat ${index === 0 ? "stat-primary" : ""}"><small class="stat-label">${escapeHtml(label)}</small><strong class="stat-value" data-text="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
 
   const games = state.games.filter((game) => (state.platform === "all" || game.platform === state.platform) && game.title.toLowerCase().includes(state.query));
   $("#games").innerHTML = games.map((game) => `<article class="game platform-${game.platform}">
     ${posterMarkup(game)}
-    <div class="game-content"><div class="game-top"><span class="badge">${platformIcon(game.platform)}<span>${platformNames[game.platform]}</span></span><span class="source">${game.source === "manual" ? "历史记录" : game.source.endsWith("-sync") ? "LIVE SYNC" : "OFFICIAL FILE"}</span></div>
+    <div class="game-content"><div class="game-top"><span class="badge">${platformIcon(game.platform)}<span>${platformNames[game.platform]}</span></span><span class="source">${game.source === "manual" ? "历史记录" : game.source.endsWith("-sync") ? "官方同步" : "官方文件"}</span></div>
     <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours">${formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`).join("");
   $("#empty").classList.toggle("hidden", games.length > 0);
   $("#scoreAttribution").classList.toggle("hidden", !state.games.some((game) => game.metacriticScore !== null && game.metacriticScore !== undefined && Number.isInteger(Number(game.metacriticScore))));
 }
 
-async function load() { state.games = (await api("/api/games")).games; render(); }
+async function load() { const result = await api("/api/games"); state.games = result.games; state.stats = result.stats || null; render(); }
 function toast(message) { const el = $("#toast"); el.textContent = message; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2800); }
 
 function calendarLevel(total, max) {
@@ -193,12 +198,12 @@ $("#importForm").addEventListener("submit", async (event) => {
 });
 
 function renderProviders() {
-  $("#providerList").innerHTML = state.providers.map((provider, index) => {
+  $("#providerList").innerHTML = state.providers.map((provider) => {
     const connection = state.connections.find((item) => item.provider === provider.id) || { connected:false };
     const canConnect = Object.keys(platformNames).includes(provider.id) || provider.id === "rawg";
-    return `<div class="provider" data-provider="${provider.id}"><span class="provider-index">0${index + 1}</span><strong>${provider.name}</strong>
-      <span class="status ${connection.connected ? "connected" : ""}">${connection.connected ? "ONLINE" : provider.status}</span>
-      <p>${provider.detail}${connection.lastSyncAt ? `<span class="connection-meta">最后脉冲：${new Date(connection.lastSyncAt).toLocaleString()} · ${connection.itemCount} 款</span>` : ""}${connection.lastError ? `<span class="connection-meta error-meta">错误：${escapeHtml(connection.lastError)}</span>` : ""}</p>
+    return `<div class="provider" data-provider="${provider.id}"><strong>${provider.name}</strong>
+      <span class="status ${connection.connected ? "connected" : ""}">${connection.connected ? "已连接" : provider.status}</span>
+      <p>${provider.detail}${connection.mode ? `<span class="connection-meta">连接方式：${connection.mode === "play-activity" ? "账号游戏记录" : "家长监护"}</span>` : ""}${connection.lastSyncAt ? `<span class="connection-meta">最后同步：${new Date(connection.lastSyncAt).toLocaleString()} · ${connection.itemCount} 款</span>` : ""}${connection.lastError ? `<span class="connection-meta error-meta">错误：${escapeHtml(connection.lastError)}</span>` : ""}</p>
       <div class="provider-actions">${connection.connected ? `<button class="small-button sync-provider">立即同步</button><button class="small-button danger disconnect-provider">断开</button>` : `<button class="small-button connect-provider" ${canConnect ? "" : "disabled"}>${canConnect ? "连接" : "即将支持"}</button>`}</div></div>`;
   }).join("");
 }
@@ -221,8 +226,8 @@ function openConnection(provider) {
     $("#connectFields").innerHTML = `<label>OpenXBL API Key<input name="apiKey" type="password" autocomplete="off" required minlength="16" placeholder="粘贴 Personal API Key"></label>`;
   } else if (provider === "nintendo") {
     $("#connectTitle").textContent = "连接 Nintendo";
-    $("#connectInstructions").innerHTML = `<ol class="steps"><li>在官方 Nintendo Switch Parental Controls App 中绑定主机。</li><li>打开 Nintendo 官方账号授权页。</li><li>长按或右键“选择此人”，复制以 <code>npf54789befb391a838://auth</code> 开头的链接。</li></ol><p class="warning">家长监护仅提供其保留期内的日报与月报。</p>`;
-    $("#connectFields").innerHTML = `<input type="hidden" name="stage" value="start"><p class="hint">第一步生成带一次性校验码的官方登录链接。</p>`;
+    $("#connectInstructions").innerHTML = `<ol class="steps"><li>推荐选择“账号游戏记录”，它不要求家长监护，可读取累计时长和最近七天每日时长。</li><li>打开 Nintendo 官方账号授权页并登录。</li><li>长按或右键“选择此人”，复制完整回跳链接。</li></ol><p class="warning">这是 Nintendo 官方 App 使用的非公开接口，平台改版后可能需要更新。</p>`;
+    $("#connectFields").innerHTML = `<input type="hidden" name="stage" value="start"><label>读取方式<select name="nintendoMode"><option value="play-activity">账号游戏记录（推荐，无需家长监护）</option><option value="parental">家长监护日报与月报</option></select></label>`;
     form.querySelector("button[type=submit]").textContent = "打开 Nintendo 登录页";
   } else if (provider === "steam") {
     $("#connectTitle").textContent = "连接 Steam";
@@ -254,9 +259,9 @@ $("#connectForm").addEventListener("submit", async (event) => {
   const button = form.querySelector("button[type=submit]"); button.disabled = true; button.textContent = "正在连接并同步…";
   try {
     if (provider === "nintendo" && data.stage === "start") {
-      const result = await api("/api/connections/nintendo/start", { method:"POST" }); window.open(result.authorizationUrl, "_blank", "noopener");
+      const result = await api("/api/connections/nintendo/start", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ mode:data.nintendoMode }) }); window.open(result.authorizationUrl, "_blank", "noopener");
       $("#connectInstructions").innerHTML = `<p class="hint">登录后长按或右键“选择此人”复制链接，再粘贴到下方。</p>`;
-      $("#connectFields").innerHTML = `<input type="hidden" name="stage" value="complete"><label>Nintendo 回跳链接<textarea name="callbackUrl" rows="4" autocomplete="off" required placeholder="npf54789befb391a838://auth#state=…"></textarea></label>`;
+      $("#connectFields").innerHTML = `<input type="hidden" name="stage" value="complete"><label>Nintendo 回跳链接<textarea name="callbackUrl" rows="4" autocomplete="off" required placeholder="${escapeHtml(result.callbackPrefix)}#state=…"></textarea></label>`;
       button.textContent = "完成连接并同步"; toast("请登录并复制回跳链接");
     } else {
       const url = provider === "nintendo" ? "/api/connections/nintendo/complete" : `/api/connections/${provider}`;

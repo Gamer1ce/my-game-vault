@@ -75,6 +75,12 @@ db.exec(`
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY(date, platform, game_key)
   );
+  CREATE TABLE IF NOT EXISTS platform_stats (
+    platform TEXT PRIMARY KEY CHECK(platform IN ('xbox', 'playstation', 'nintendo', 'steam')),
+    achievements_earned INTEGER NOT NULL DEFAULT 0,
+    completed_games INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
 `);
 
 const gamesTableSql = String(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'games'").get()?.sql || "");
@@ -160,6 +166,16 @@ const upsertDailyActivity = db.prepare(`
     store_url = COALESCE(excluded.store_url, daily_activity.store_url),
     updated_at = CURRENT_TIMESTAMP
 `);
+const setDailyActivity = db.prepare(`
+  INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, cover_url, store_url)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(date, platform, game_key) DO UPDATE SET
+    title = excluded.title,
+    minutes = excluded.minutes,
+    cover_url = COALESCE(excluded.cover_url, daily_activity.cover_url),
+    store_url = COALESCE(excluded.store_url, daily_activity.store_url),
+    updated_at = CURRENT_TIMESTAMP
+`);
 const upsertPlayEvent = db.prepare(`
   INSERT INTO play_events(date, platform, game_key, external_id, title, cover_url, store_url)
   VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -170,7 +186,7 @@ const upsertPlayEvent = db.prepare(`
     updated_at = CURRENT_TIMESTAMP
 `);
 const gamesNeedingScores = db.prepare(`
-  SELECT id, platform, title FROM games
+  SELECT id, platform, title, external_id AS externalId FROM games
   WHERE minutes > 0 AND (metacritic_checked_at IS NULL OR metacritic_checked_at < datetime('now', '-30 days'))
   ORDER BY metacritic_checked_at IS NOT NULL, minutes DESC
 `);
@@ -178,6 +194,39 @@ const updateMetacriticScore = db.prepare(`
   UPDATE games SET metacritic_score = ?, score_url = ?, metacritic_checked_at = CURRENT_TIMESTAMP WHERE id = ?
 `);
 const countMetacriticScores = db.prepare("SELECT COUNT(*) AS count FROM games WHERE minutes > 0 AND metacritic_score IS NOT NULL");
+const upsertPlatformStats = db.prepare(`
+  INSERT INTO platform_stats(platform, achievements_earned, completed_games, updated_at)
+  VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+  ON CONFLICT(platform) DO UPDATE SET
+    achievements_earned = excluded.achievements_earned,
+    completed_games = excluded.completed_games,
+    updated_at = CURRENT_TIMESTAMP
+`);
+
+function dashboardStats() {
+  const base = db.prepare(`
+    SELECT COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS gameCount, MAX(updated_at) AS latest
+    FROM games WHERE minutes > 0
+  `).get();
+  const totals = db.prepare(`SELECT platform, SUM(minutes) AS minutes FROM games WHERE minutes > 0 GROUP BY platform`).all();
+  const achievementRows = db.prepare(`
+    SELECT platform, COALESCE(SUM(achievements_earned), 0) AS achievementsEarned,
+           SUM(CASE WHEN achievements_total > 0 AND achievements_earned >= achievements_total THEN 1 ELSE 0 END) AS completedGames
+    FROM games WHERE minutes > 0 GROUP BY platform
+  `).all();
+  const snapshots = db.prepare(`SELECT platform, achievements_earned AS achievementsEarned, completed_games AS completedGames FROM platform_stats`).all();
+  const achievements = new Map(achievementRows.map((row) => [row.platform, row]));
+  for (const snapshot of snapshots) achievements.set(snapshot.platform, snapshot);
+  const primary = totals.sort((a, b) => Number(b.minutes) - Number(a.minutes))[0]?.platform || null;
+  return {
+    totalMinutes: Number(base.totalMinutes || 0),
+    gameCount: Number(base.gameCount || 0),
+    achievementsEarned: [...achievements.values()].reduce((sum, row) => sum + Number(row.achievementsEarned || 0), 0),
+    completedGames: [...achievements.values()].reduce((sum, row) => sum + Number(row.completedGames || 0), 0),
+    primaryPlatform: primary,
+    latest: base.latest ? String(base.latest).slice(0, 10) : null
+  };
+}
 
 function publicConnection(provider) {
   const connection = credentials.get(provider);
@@ -187,7 +236,8 @@ function publicConnection(provider) {
     connectedAt: connection.connectedAt || null,
     lastSyncAt: connection.lastSyncAt || null,
     lastError: connection.lastError || null,
-    itemCount: Number(connection.itemCount || 0)
+    itemCount: Number(connection.itemCount || 0),
+    mode: connection.mode || null
   } : { provider, connected: false, connectedAt: null, lastSyncAt: null, lastError: null, itemCount: 0 };
 }
 
@@ -240,8 +290,12 @@ async function syncPlaystation() {
       };
       credentials.set("playstation", connection);
     }
-    const games = await playstation.fetchGames(connection.accessToken);
+    const snapshot = await playstation.fetchSnapshot(connection.accessToken);
+    const games = snapshot.games;
     saveSyncedGames(games, "playstation-sync");
+    if (snapshot.achievementSummary) {
+      upsertPlatformStats.run("playstation", snapshot.achievementSummary.achievementsEarned, snapshot.achievementSummary.completedGames);
+    }
     connection = { ...connection, lastSyncAt: new Date().toISOString(), lastError: null, itemCount: games.length };
     credentials.set("playstation", connection);
     return { synced: games.length, connection: publicConnection("playstation") };
@@ -270,8 +324,20 @@ async function syncNintendo() {
   let connection = credentials.get("nintendo");
   if (!connection || connection.pending) throw new Error("Nintendo 尚未连接");
   try {
-    const result = await nintendo.fetchGames(connection.sessionToken);
+    const result = await nintendo.fetchGames(connection.sessionToken, connection.mode || "parental");
     saveSyncedGames(result.games, "nintendo-sync");
+    if (result.activity?.length) {
+      db.exec("BEGIN IMMEDIATE");
+      try {
+        for (const item of result.activity) {
+          setDailyActivity.run(item.date, "nintendo", item.externalId, item.externalId, item.title, item.minutes, item.coverUrl || null, item.storeUrl || null);
+        }
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    }
     connection = {
       ...connection,
       nickname: result.nickname || connection.nickname || null,
@@ -336,7 +402,7 @@ async function syncMetacritic() {
   return { synced: updated, checked, connection: publicConnection("rawg") };
 }
 
-app.get("/api/games", (_req, res) => res.json({ games: listGames.all() }));
+app.get("/api/games", (_req, res) => res.json({ games: listGames.all(), stats: dashboardStats() }));
 
 app.get("/api/activity", (req, res) => {
   const month = String(req.query.month || shanghaiDate().slice(0, 7));
@@ -429,10 +495,11 @@ app.delete("/api/connections/xbox", (_req, res) => {
   res.status(204).end();
 });
 
-app.post("/api/connections/nintendo/start", (_req, res) => {
-  const auth = nintendo.authorizationStart();
-  credentials.set("nintendo-pending", { state: auth.state, verifier: auth.verifier, createdAt: Date.now() });
-  res.json({ authorizationUrl: auth.authorizationUrl });
+app.post("/api/connections/nintendo/start", (req, res) => {
+  const mode = req.body?.mode === "parental" ? "parental" : "play-activity";
+  const auth = nintendo.authorizationStart(mode);
+  credentials.set("nintendo-pending", { state: auth.state, verifier: auth.verifier, clientId: auth.clientId, mode: auth.mode, createdAt: Date.now() });
+  res.json({ authorizationUrl: auth.authorizationUrl, mode: auth.mode, callbackPrefix: `npf${auth.clientId}://auth` });
 });
 
 app.post("/api/connections/nintendo/complete", async (req, res, next) => {
@@ -442,6 +509,7 @@ app.post("/api/connections/nintendo/complete", async (req, res, next) => {
     const sessionToken = await nintendo.complete(req.body.callbackUrl, pending);
     credentials.set("nintendo", {
       sessionToken,
+      mode: pending.mode || "parental",
       connectedAt: new Date().toISOString(),
       lastSyncAt: null,
       lastError: null,
