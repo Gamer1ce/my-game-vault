@@ -5,6 +5,26 @@ import { createMetacriticConnector, normalizeScoreTitle } from "../src/metacriti
 test("评分匹配会忽略商标和版本后缀", () => {
   assert.equal(normalizeScoreTitle("Cyberpunk 2077™ Ultimate Edition"), normalizeScoreTitle("Cyberpunk 2077"));
   assert.equal(normalizeScoreTitle("Baldur's Gate III"), normalizeScoreTitle("Baldur's Gate 3"));
+  assert.equal(normalizeScoreTitle("FAR CRY®6"), normalizeScoreTitle("Far Cry 6"));
+  assert.equal(normalizeScoreTitle("RESIDENT EVIL 3 for Windows"), normalizeScoreTitle("Resident Evil 3"));
+  assert.equal(normalizeScoreTitle("God of War Ragnarök"), normalizeScoreTitle("God of War: Ragnarok"));
+  assert.equal(normalizeScoreTitle("R.E.P.O."), "repo");
+});
+
+test("Steam 游戏在 RAWG 缺分时读取商店的 Metacritic 元数据", async () => {
+  const connector = createMetacriticConnector({ fetchFn: async (url) => {
+    if (url.hostname === "store.steampowered.com") return {
+      ok: true, status: 200, json: async () => ({ "1659040": { success: true, data: { metacritic: { score: 87, url: "http://www.metacritic.com/game/pc/hitman-3" } } } })
+    };
+    if (url.hostname === "backend.metacritic.com") return { ok: true, status: 200, json: async () => ({ data: { item: null } }) };
+    return url.pathname.includes("/api/games/")
+      ? { ok: true, status: 200, json: async () => ({ metacritic: null, metacritic_platforms: [] }) }
+      : { ok: true, status: 200, json: async () => ({ results: [{ id: 1, name: "HITMAN World of Assassination", slug: "hitman-world-of-assassination", metacritic: null }] }) };
+  } });
+  assert.deepEqual(await connector.fetchScore("valid-api-key-1234", { title: "HITMAN World of Assassination", platform: "steam", externalId: "1659040" }), {
+    score: 87,
+    scoreUrl: "https://www.metacritic.com/game/pc/hitman-3"
+  });
 });
 
 test("RAWG 连接器按平台精确匹配 Metacritic 评分", async () => {
@@ -70,6 +90,38 @@ test("Metacritic 标题迁移后跟随返回的规范 slug", async () => {
   assert.deepEqual(await connector.fetchScore("valid-api-key-1234", { title: "Persona 5 Scramble: The Phantom Strikers", platform: "playstation" }), {
     score: 83,
     scoreUrl: "https://www.metacritic.com/game/persona-5-strikers/"
+  });
+});
+
+test("标题改名后使用经过核对的 Metacritic 规范页", async () => {
+  const connector = createMetacriticConnector({ fetchFn: async (url) => {
+    if (url.hostname === "backend.metacritic.com" && url.pathname.includes("playerunknowns-battlegrounds")) {
+      return { ok: true, status: 200, json: async () => ({
+        data: { item: { title: "PlayerUnknown's Battlegrounds", slug: "playerunknowns-battlegrounds", criticScoreSummary: { score: 86 } } }
+      }) };
+    }
+    if (url.hostname === "backend.metacritic.com") return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ results: [] }) };
+  } });
+  assert.deepEqual(await connector.fetchScore("valid-api-key-1234", { title: "PUBG: BATTLEGROUNDS", platform: "playstation" }), {
+    score: 86,
+    scoreUrl: "https://www.metacritic.com/game/playerunknowns-battlegrounds/"
+  });
+});
+
+test("同名游戏按平台使用经过核对的 Metacritic 规范页", async () => {
+  const connector = createMetacriticConnector({ fetchFn: async (url) => {
+    if (url.hostname === "backend.metacritic.com" && url.pathname.includes("synapse-2023")) {
+      return { ok: true, status: 200, json: async () => ({
+        data: { item: { title: "Synapse (2023)", slug: "synapse-2023", criticScoreSummary: { score: 77 } } }
+      }) };
+    }
+    if (url.hostname === "backend.metacritic.com") return { ok: false, status: 404, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ results: [] }) };
+  } });
+  assert.deepEqual(await connector.fetchScore("valid-api-key-1234", { title: "Synapse", platform: "playstation" }), {
+    score: 77,
+    scoreUrl: "https://www.metacritic.com/game/synapse-2023/"
   });
 });
 

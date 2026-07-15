@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPlaystationConnector, normalizePlaystationAchievements, normalizePlaystationTitles, parseIsoDurationToMinutes } from "../src/platforms/playstation.mjs";
+import { createPlaystationConnector, normalizePlaystationAchievements, normalizePlaystationSummary, normalizePlaystationTitles, parseIsoDurationToMinutes } from "../src/platforms/playstation.mjs";
 
 test("解析 PSN ISO 8601 时长", () => {
   assert.equal(parseIsoDurationToMinutes("PT228H56M33S"), 13737);
@@ -19,6 +19,13 @@ test("汇总 PlayStation 奖杯并识别全成就", () => {
     earnedTrophies: { bronze: 10, silver: 5, gold: 2, platinum: 1 },
     definedTrophies: { bronze: 10, silver: 5, gold: 2, platinum: 1 }
   }]), [{ key: "game", platform: "ps5", earned: 18, total: 18 }]);
+});
+
+test("PlayStation 全成就数量使用账号白金杯汇总", () => {
+  assert.deepEqual(normalizePlaystationSummary({ earnedTrophies: { bronze: 1466, silver: 431, gold: 176, platinum: 32 } }), {
+    achievementsEarned: 2105,
+    completedGames: 32
+  });
 });
 
 test("PSN 连接器完成认证与分页", async () => {

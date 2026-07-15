@@ -6,6 +6,8 @@ addUserAgent("game-time-vault/0.1.0 (personal local app)");
 
 export const NINTENDO_CLIENT_ID = "54789befb391a838";
 export const NINTENDO_REDIRECT_URI = `npf${NINTENDO_CLIENT_ID}://auth`;
+export const NINTENDO_PLAY_ACTIVITY_CLIENT_ID = "5c38e31cd085304b";
+export const NINTENDO_PLAY_ACTIVITY_REDIRECT_URI = `npf${NINTENDO_PLAY_ACTIVITY_CLIENT_ID}://auth`;
 // Nintendo Moon 会拒绝旧版客户端。Android 2.4.0 的官方内部版本为 660。
 export const NINTENDO_APP_VERSION = "2.4.0";
 export const NINTENDO_APP_BUILD = "660";
@@ -24,6 +26,8 @@ const NINTENDO_SCOPE = [
   "moonDailySummary",
   "moonMonthlySummary"
 ].join(" ");
+const NINTENDO_PLAY_ACTIVITY_SCOPE = "openid user user.mii user.email user.links[].id";
+const NINTENDO_PLAY_ACTIVITY_USER_AGENT = "com.nintendo.znej/1.13.0 (Android/7.1.2)";
 
 function secondsToMinutes(value) {
   return Math.max(0, Math.round(Number(value || 0) / 60));
@@ -103,7 +107,41 @@ export function aggregateNintendoGames(deviceReports) {
   }));
 }
 
-async function exchangeSessionToken(fetchFn, code, verifier) {
+export function normalizeNintendoPlayActivity(payload) {
+  const games = (payload?.playHistories || []).map((game) => ({
+    platform: "nintendo",
+    externalId: String(game.titleId || "").trim(),
+    title: String(game.titleName || "").trim(),
+    coverUrl: game.imageUrl ? String(game.imageUrl) : null,
+    storeUrl: `https://www.nintendo.com/us/search/#q=${encodeURIComponent(game.titleName || "")}`,
+    minutes: Math.max(0, Math.round(Number(game.totalPlayedMinutes || 0))),
+    lastPlayed: game.lastPlayedAt ? String(game.lastPlayedAt).slice(0, 10) : null,
+    notes: `Nintendo 游戏记录${game.totalPlayedDays ? ` · 游玩 ${Number(game.totalPlayedDays)} 天` : ""}`
+  })).filter((game) => game.externalId && game.title);
+  const metadata = new Map(games.map((game) => [game.externalId, game]));
+  const activity = [];
+  for (const day of payload?.recentPlayHistories || []) {
+    const date = String(day?.playedDate || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    for (const item of day?.dailyPlayHistories || []) {
+      const externalId = String(item.titleId || "").trim();
+      const minutes = Math.max(0, Math.round(Number(item.totalPlayedMinutes || 0)));
+      if (!externalId || minutes <= 0) continue;
+      const game = metadata.get(externalId);
+      activity.push({
+        date,
+        externalId,
+        title: String(item.titleName || game?.title || externalId).trim(),
+        minutes,
+        coverUrl: item.imageUrl || game?.coverUrl || null,
+        storeUrl: game?.storeUrl || null
+      });
+    }
+  }
+  return { games, activity };
+}
+
+async function exchangeSessionToken(fetchFn, code, verifier, clientId) {
   const response = await fetchFn("https://accounts.nintendo.com/connect/1.0.0/api/session_token", {
     method: "POST",
     headers: {
@@ -113,7 +151,7 @@ async function exchangeSessionToken(fetchFn, code, verifier) {
       "User-Agent": "NASDKAPI; Android"
     },
     body: new URLSearchParams({
-      client_id: NINTENDO_CLIENT_ID,
+      client_id: clientId,
       session_token_code: code,
       session_token_code_verifier: verifier
     }).toString()
@@ -123,36 +161,65 @@ async function exchangeSessionToken(fetchFn, code, verifier) {
   return payload.session_token;
 }
 
+async function fetchPlayActivity(fetchFn, sessionToken) {
+  const tokenResponse = await fetchFn("https://accounts.nintendo.com/connect/1.0.0/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({
+      client_id: NINTENDO_PLAY_ACTIVITY_CLIENT_ID,
+      session_token: sessionToken,
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer-session-token"
+    })
+  });
+  const token = await tokenResponse.json().catch(() => ({}));
+  if (!tokenResponse.ok || !token.access_token) throw new Error(token.error_description || `Nintendo 游戏记录令牌获取失败（${tokenResponse.status}）`);
+  const historyResponse = await fetchFn("https://news-api.entry.nintendo.co.jp/api/v1.1/users/me/play_histories", {
+    headers: {
+      Authorization: `${token.token_type || "Bearer"} ${token.access_token}`,
+      Accept: "application/json",
+      "User-Agent": NINTENDO_PLAY_ACTIVITY_USER_AGENT
+    }
+  });
+  const payload = await historyResponse.json().catch(() => ({}));
+  if (!historyResponse.ok) throw new Error(payload.error_description || payload.message || `Nintendo 游戏记录读取失败（${historyResponse.status}）`);
+  return { ...normalizeNintendoPlayActivity(payload), nickname: null, deviceCount: 0, skippedSections: 0, mode: "play-activity" };
+}
+
 export function createNintendoConnector({ fetchFn = fetch, moonApi = MoonApi } = {}) {
   return {
-    authorizationStart() {
+    authorizationStart(mode = "parental") {
+      const playActivity = mode === "play-activity";
+      const clientId = playActivity ? NINTENDO_PLAY_ACTIVITY_CLIENT_ID : NINTENDO_CLIENT_ID;
+      const redirectUri = playActivity ? NINTENDO_PLAY_ACTIVITY_REDIRECT_URI : NINTENDO_REDIRECT_URI;
       const state = randomBytes(36).toString("base64url");
       const verifier = randomBytes(32).toString("base64url");
       const challenge = createHash("sha256").update(verifier).digest("base64url");
       const params = new URLSearchParams({
         state,
-        redirect_uri: NINTENDO_REDIRECT_URI,
-        client_id: NINTENDO_CLIENT_ID,
-        scope: NINTENDO_SCOPE,
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        scope: playActivity ? NINTENDO_PLAY_ACTIVITY_SCOPE : NINTENDO_SCOPE,
         response_type: "session_token_code",
         session_token_code_challenge: challenge,
         session_token_code_challenge_method: "S256"
       });
-      return { state, verifier, authorizationUrl: `https://accounts.nintendo.com/connect/1.0.0/authorize?${params}` };
+      return { state, verifier, clientId, mode: playActivity ? "play-activity" : "parental", authorizationUrl: `https://accounts.nintendo.com/connect/1.0.0/authorize?${params}` };
     },
 
     async complete(callbackUrl, pending) {
       let url;
       try { url = new URL(String(callbackUrl || "").trim()); } catch { throw new Error("Nintendo 回跳链接格式无效"); }
-      if (url.protocol !== `npf${NINTENDO_CLIENT_ID}:`) throw new Error("这不是 Nintendo 家长监护授权链接");
+      const clientId = pending.clientId || NINTENDO_CLIENT_ID;
+      if (url.protocol !== `npf${clientId}:`) throw new Error("这不是当前 Nintendo 连接方式生成的授权链接");
       const params = new URLSearchParams(url.hash.slice(1));
       if (params.get("state") !== pending.state) throw new Error("Nintendo 授权状态不匹配，请重新开始连接");
       const code = params.get("session_token_code");
       if (!code) throw new Error("回跳链接中没有 session_token_code");
-      return exchangeSessionToken(fetchFn, code, pending.verifier);
+      return exchangeSessionToken(fetchFn, code, pending.verifier, clientId);
     },
 
-    async fetchGames(sessionToken) {
+    async fetchGames(sessionToken, mode = "parental") {
+      if (mode === "play-activity") return fetchPlayActivity(fetchFn, sessionToken);
       const { moon, data } = await moonApi.createWithSessionToken(sessionToken);
       moon.znma_version = NINTENDO_APP_VERSION;
       moon.znma_build = NINTENDO_APP_BUILD;

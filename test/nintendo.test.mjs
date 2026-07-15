@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aggregateNintendoGames, createNintendoConnector, NINTENDO_CLIENT_ID } from "../src/platforms/nintendo.mjs";
+import { aggregateNintendoGames, createNintendoConnector, NINTENDO_CLIENT_ID, NINTENDO_PLAY_ACTIVITY_CLIENT_ID, normalizeNintendoPlayActivity } from "../src/platforms/nintendo.mjs";
 
 test("Nintendo 月报和日报聚合时避免重复月份", () => {
   const games = aggregateNintendoGames([{
@@ -42,6 +42,32 @@ test("Nintendo 授权回跳校验并交换会话令牌", async () => {
   const callback = `npf${NINTENDO_CLIENT_ID}://auth#state=${start.state}&session_token_code=abc`;
   assert.equal(await connector.complete(callback, start), "long-lived-token");
   assert.match(request.options.body, /session_token_code=abc/);
+});
+
+test("Nintendo 游戏记录模式无需家长监护并返回累计与每日时长", async () => {
+  const normalized = normalizeNintendoPlayActivity({
+    playHistories: [{ titleId: "0100", titleName: "Zelda", imageUrl: "https://example.com/z.jpg", lastPlayedAt: "2026-07-14T10:00:00+09:00", totalPlayedDays: 12, totalPlayedMinutes: 2967 }],
+    recentPlayHistories: [{ playedDate: "2026-07-14T00:00:00+09:00", dailyPlayHistories: [{ titleId: "0100", titleName: "Zelda", totalPlayedMinutes: 16 }] }]
+  });
+  assert.equal(normalized.games[0].minutes, 2967);
+  assert.equal(normalized.games[0].lastPlayed, "2026-07-14");
+  assert.deepEqual(normalized.activity[0], {
+    date: "2026-07-14", externalId: "0100", title: "Zelda", minutes: 16,
+    coverUrl: "https://example.com/z.jpg", storeUrl: "https://www.nintendo.com/us/search/#q=Zelda"
+  });
+
+  const calls = [];
+  const connector = createNintendoConnector({ fetchFn: async (url) => {
+    calls.push(String(url));
+    return calls.length === 1
+      ? { ok: true, status: 200, json: async () => ({ token_type: "Bearer", access_token: "short-token" }) }
+      : { ok: true, status: 200, json: async () => ({ playHistories: [], recentPlayHistories: [] }) };
+  } });
+  const start = connector.authorizationStart("play-activity");
+  assert.equal(new URL(start.authorizationUrl).searchParams.get("client_id"), NINTENDO_PLAY_ACTIVITY_CLIENT_ID);
+  const result = await connector.fetchGames("session", "play-activity");
+  assert.equal(result.mode, "play-activity");
+  assert.match(calls[1], /news-api\.entry\.nintendo\.co\.jp/);
 });
 
 test("Nintendo 连接器读取设备、日报和月报", async () => {
