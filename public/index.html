@@ -15,12 +15,23 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260716-1">
+  <link rel="stylesheet" href="/styles.css?v=20260717-1">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
   <header class="hero">
     <nav><span class="brand"><b>MY</b> GAME VAULT</span><div class="nav-actions"><a class="ghost nav-highlight" href="#highlights">精彩时刻</a><button class="ghost hidden" id="importButton">导入官方数据</button><button class="ghost hidden" id="adminButton">管理员登录</button></div></nav>
+    <div class="guest-actions" aria-label="留言与点赞">
+      <form id="guestbookForm" autocomplete="off">
+        <input name="message" maxlength="72" minlength="2" aria-label="留言内容" placeholder="留下一条弹幕，按回车发送…" required>
+        <input class="guestbook-trap" name="website" tabindex="-1" aria-hidden="true" autocomplete="off">
+        <button class="guestbook-submit-sr" type="submit">发送留言</button>
+      </form>
+      <button class="site-like" id="siteLikeButton" type="button" aria-label="为 Gamer1ce 的游戏档案点赞">
+        <span class="like-symbol" aria-hidden="true">♥</span><strong id="siteLikeCount">0</strong>
+      </button>
+    </div>
+    <div class="danmaku-stage" id="danmakuStage" aria-label="留言弹幕"></div>
     <div class="hero-copy">
       <span class="hero-kicker">/// Gamer1ce // CROSS-PLATFORM ARCHIVE</span>
       <h1 data-text="我的游戏生涯" aria-label="我的游戏生涯">我的游戏生涯</h1>
@@ -154,6 +165,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=20260716-1"></script>
+  <script type="module" src="/app.js?v=20260717-1"></script>
 </body>
 </html>

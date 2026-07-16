@@ -29,9 +29,16 @@ async function openXblRequest(fetchFn, apiKey, pathname, options = {}) {
     ...options,
     headers: { ...xboxHeaders(apiKey), ...(options.headers || {}) }
   });
-  const payload = await response.json().catch(() => null);
+  const contentType = response.headers?.get?.("content-type") || "";
+  let payload = null;
+  let rawText = "";
+  if (/json/i.test(contentType) || !response.text) payload = await response.json().catch(() => null);
+  else rawText = await response.text().catch(() => "");
   if (!response.ok) {
     const detail = payload?.message || payload?.error_description || payload?.error;
+    if (response.status === 403 && /cloudflare|sorry, you have been blocked/i.test(rawText)) {
+      throw new Error("OpenXBL 被当前网络的 Cloudflare 规则拦截；请启用可访问 OpenXBL 的系统代理后重试");
+    }
     if (response.status === 401 || response.status === 403) throw new Error("OpenXBL API Key 无效、已过期，或账号尚未完成 Xbox 关联");
     if (response.status === 429) throw new Error("OpenXBL 免费额度暂时用完，请稍后再同步");
     throw new Error(detail || `OpenXBL 请求失败（${response.status}）`);

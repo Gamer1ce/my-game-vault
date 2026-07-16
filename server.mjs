@@ -20,8 +20,17 @@ import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./sr
 import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
 import { createSyncRunner } from "./src/sync-runner.mjs";
 import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
+import { configureOutboundProxy } from "./src/network.mjs";
+import {
+  calibratedFinalMinutes,
+  matchPlaystationCalibrationRecord,
+  parsePlaystationGameplayWorkbook,
+  playstationCalibrationFingerprint,
+  playstationTitleKey
+} from "./src/playstation-calibration.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
+const outboundProxy = configureOutboundProxy();
 const dataDir = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(root, "data");
 mkdirSync(dataDir, { recursive: true });
 const defaultHighlightsDir = path.join(dataDir, "highlights");
@@ -67,9 +76,20 @@ db.exec(`
     platform TEXT NOT NULL CHECK(platform IN ('xbox', 'playstation', 'nintendo', 'steam')),
     title TEXT NOT NULL,
     minutes INTEGER NOT NULL DEFAULT 0 CHECK(minutes >= 0),
+    platform_minutes INTEGER CHECK(platform_minutes >= 0),
+    calibrated_minutes INTEGER CHECK(calibrated_minutes >= 0),
+    calibration_platform_minutes INTEGER CHECK(calibration_platform_minutes >= 0),
+    calibrated_at TEXT,
+    calibrated_title TEXT,
     last_played TEXT,
     source TEXT NOT NULL DEFAULT 'manual',
     external_id TEXT,
+    platform_id TEXT,
+    concept_id TEXT,
+    product_id TEXT,
+    entitlement_id TEXT,
+    library_status TEXT,
+    time_status TEXT NOT NULL DEFAULT 'known' CHECK(time_status IN ('known', 'unknown')),
     cover_url TEXT,
     store_url TEXT,
     metacritic_score INTEGER,
@@ -122,6 +142,31 @@ db.exec(`
     total_played_days INTEGER NOT NULL DEFAULT 0,
     synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS playstation_title_aliases (
+    alias_key TEXT PRIMARY KEY,
+    alias_title TEXT NOT NULL,
+    platform_id TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS playstation_calibration_state (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    fingerprint TEXT NOT NULL UNIQUE,
+    calibrated_at TEXT NOT NULL,
+    result_json TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS guestbook_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nickname TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS site_counters (
+    name TEXT PRIMARY KEY,
+    value INTEGER NOT NULL DEFAULT 0 CHECK(value >= 0),
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+  INSERT OR IGNORE INTO site_counters(name, value) VALUES ('likes', 0);
 `);
 
 const gamesTableSql = String(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'games'").get()?.sql || "");
@@ -161,6 +206,23 @@ if (!gameColumns.includes("metacritic_checked_at")) db.exec("ALTER TABLE games A
 if (!gameColumns.includes("achievements_earned")) db.exec("ALTER TABLE games ADD COLUMN achievements_earned INTEGER");
 if (!gameColumns.includes("achievements_total")) db.exec("ALTER TABLE games ADD COLUMN achievements_total INTEGER");
 if (!gameColumns.includes("achievements_updated_at")) db.exec("ALTER TABLE games ADD COLUMN achievements_updated_at TEXT");
+if (!gameColumns.includes("platform_minutes")) db.exec("ALTER TABLE games ADD COLUMN platform_minutes INTEGER CHECK(platform_minutes >= 0)");
+if (!gameColumns.includes("calibrated_minutes")) db.exec("ALTER TABLE games ADD COLUMN calibrated_minutes INTEGER CHECK(calibrated_minutes >= 0)");
+if (!gameColumns.includes("calibration_platform_minutes")) db.exec("ALTER TABLE games ADD COLUMN calibration_platform_minutes INTEGER CHECK(calibration_platform_minutes >= 0)");
+if (!gameColumns.includes("calibrated_at")) db.exec("ALTER TABLE games ADD COLUMN calibrated_at TEXT");
+if (!gameColumns.includes("calibrated_title")) db.exec("ALTER TABLE games ADD COLUMN calibrated_title TEXT");
+if (!gameColumns.includes("platform_id")) db.exec("ALTER TABLE games ADD COLUMN platform_id TEXT");
+if (!gameColumns.includes("concept_id")) db.exec("ALTER TABLE games ADD COLUMN concept_id TEXT");
+if (!gameColumns.includes("product_id")) db.exec("ALTER TABLE games ADD COLUMN product_id TEXT");
+if (!gameColumns.includes("entitlement_id")) db.exec("ALTER TABLE games ADD COLUMN entitlement_id TEXT");
+if (!gameColumns.includes("library_status")) db.exec("ALTER TABLE games ADD COLUMN library_status TEXT");
+if (!gameColumns.includes("time_status")) db.exec("ALTER TABLE games ADD COLUMN time_status TEXT NOT NULL DEFAULT 'known'");
+db.exec(`
+  UPDATE games SET platform_id = external_id WHERE platform_id IS NULL AND external_id IS NOT NULL;
+  UPDATE games SET platform_minutes = minutes WHERE platform_minutes IS NULL AND external_id IS NOT NULL;
+  CREATE UNIQUE INDEX IF NOT EXISTS games_platform_platform_id
+    ON games(platform, platform_id) WHERE platform_id IS NOT NULL;
+`);
 const activityColumns = db.prepare("PRAGMA table_info(daily_activity)").all().map((column) => column.name);
 if (!activityColumns.includes("store_url")) db.exec("ALTER TABLE daily_activity ADD COLUMN store_url TEXT");
 if (!activityColumns.includes("precision")) {
@@ -176,6 +238,31 @@ const loginAttempts = new Map();
 const sessionLifetime = 8 * 60 * 60 * 1000;
 const loginWindow = 15 * 60 * 1000;
 const loginLimit = 8;
+const visitorWriteAttempts = new Map();
+const visitorWritePaths = new Set(["/api/guestbook", "/api/likes"]);
+
+function visitorKey(req, action) {
+  return `${action}:${req.ip || req.socket.remoteAddress || "unknown"}`;
+}
+
+function visitorWriteAllowed(req, action, { limit, windowMs }) {
+  const key = visitorKey(req, action);
+  const now = Date.now();
+  const recent = (visitorWriteAttempts.get(key) || []).filter((time) => time > now - windowMs);
+  if (recent.length >= limit) return false;
+  recent.push(now);
+  visitorWriteAttempts.set(key, recent);
+  return true;
+}
+
+function cleanGuestText(value, maximum) {
+  return String(value || "")
+    .normalize("NFC")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maximum);
+}
 
 function adminAuthenticated(req) {
   if (!admin) return true;
@@ -252,7 +339,7 @@ app.post("/api/admin/session", (req, res) => {
 });
 
 app.use((req, res, next) => {
-  if (!admin || !req.path.startsWith("/api/") || ["GET", "HEAD", "OPTIONS"].includes(req.method) || (req.method === "POST" && req.path === "/api/admin/session")) return next();
+  if (!admin || !req.path.startsWith("/api/") || ["GET", "HEAD", "OPTIONS"].includes(req.method) || (req.method === "POST" && (req.path === "/api/admin/session" || visitorWritePaths.has(req.path)))) return next();
   if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站管理请求" });
   if (!adminAuthenticated(req)) return res.status(401).json({ error: "需要先解锁管理员模式" });
   next();
@@ -288,22 +375,101 @@ app.get("/media/highlights/:filename", (req, res) => {
 });
 app.use(express.static(path.join(root, "public")));
 
+const listGuestbookMessages = db.prepare(`
+  SELECT id, nickname, message, created_at AS createdAt
+  FROM (
+    SELECT id, nickname, message, created_at
+    FROM guestbook_messages
+    ORDER BY id DESC
+    LIMIT 36
+  )
+  ORDER BY id
+`);
+const insertGuestbookMessage = db.prepare(`
+  INSERT INTO guestbook_messages(nickname, message) VALUES (?, ?)
+  RETURNING id, nickname, message, created_at AS createdAt
+`);
+const trimGuestbookMessages = db.prepare(`
+  DELETE FROM guestbook_messages
+  WHERE id NOT IN (SELECT id FROM guestbook_messages ORDER BY id DESC LIMIT 500)
+`);
+const readLikes = db.prepare("SELECT value FROM site_counters WHERE name = 'likes'");
+const incrementLikes = db.prepare(`
+  UPDATE site_counters
+  SET value = value + 1, updated_at = CURRENT_TIMESTAMP
+  WHERE name = 'likes'
+  RETURNING value
+`);
+
+app.get("/api/guestbook", (_req, res) => {
+  res.json({
+    messages: listGuestbookMessages.all(),
+    likes: Number(readLikes.get()?.value || 0)
+  });
+});
+
+app.post("/api/guestbook", (req, res) => {
+  if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站留言请求" });
+  if (!visitorWriteAllowed(req, "guestbook", { limit: 5, windowMs: 10 * 60 * 1000 })) {
+    res.set("Retry-After", "600");
+    return res.status(429).json({ error: "留言发送得太快了，请稍后再试" });
+  }
+  if (String(req.body?.website || "").trim()) return res.status(204).end();
+  const nickname = cleanGuestText(req.body?.nickname, 16) || "匿名玩家";
+  const message = cleanGuestText(req.body?.message, 72);
+  if (!message) return res.status(400).json({ error: "请输入留言内容" });
+  if (message.length < 2) return res.status(400).json({ error: "留言至少需要 2 个字符" });
+  const saved = insertGuestbookMessage.get(nickname, message);
+  trimGuestbookMessages.run();
+  return res.status(201).json({ message: saved });
+});
+
+app.post("/api/likes", (req, res) => {
+  if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站点赞请求" });
+  if (!visitorWriteAllowed(req, "likes", { limit: 300, windowMs: 60 * 1000 })) {
+    res.set("Retry-After", "60");
+    return res.status(429).json({ error: "点赞速度太快了，休息一下再继续" });
+  }
+  const result = incrementLikes.get();
+  return res.json({ likes: Number(result?.value || 0) });
+});
+
 const listGames = db.prepare(`
-  SELECT id, platform, title, minutes, last_played AS lastPlayed,
-         source, external_id AS externalId, cover_url AS coverUrl, store_url AS storeUrl,
+  SELECT id, platform, title, minutes, platform_minutes AS platformMinutes,
+         calibrated_minutes AS calibratedMinutes, calibration_platform_minutes AS calibrationPlatformMinutes,
+         calibrated_at AS calibratedAt, last_played AS lastPlayed,
+         source, external_id AS externalId, platform_id AS platformId, concept_id AS conceptId,
+         product_id AS productId, entitlement_id AS entitlementId,
+         library_status AS libraryStatus, time_status AS timeStatus,
+         cover_url AS coverUrl, store_url AS storeUrl,
          metacritic_score AS metacriticScore, score_url AS scoreUrl,
          achievements_earned AS achievementsEarned, achievements_total AS achievementsTotal,
          notes, updated_at AS updatedAt
-  FROM games WHERE minutes > 0 ORDER BY minutes DESC, title COLLATE NOCASE
+  FROM games
+  WHERE minutes > 0 OR (platform = 'playstation' AND library_status IS NOT NULL)
+  ORDER BY time_status = 'unknown', minutes DESC, title COLLATE NOCASE
 `);
 
 const upsertSyncedGame = db.prepare(`
-  INSERT INTO games(platform, title, minutes, last_played, source, external_id, cover_url, store_url, achievements_earned, achievements_total, achievements_updated_at, notes)
-  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END, ?)
+  INSERT INTO games(platform, title, minutes, platform_minutes, last_played, source, external_id, platform_id, concept_id, time_status, cover_url, store_url, achievements_earned, achievements_total, achievements_updated_at, notes)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'known', ?, ?, ?, ?, CASE WHEN ? IS NULL THEN NULL ELSE CURRENT_TIMESTAMP END, ?)
   ON CONFLICT DO UPDATE SET
-    title = excluded.title,
-    minutes = MAX(games.minutes, excluded.minutes),
-    last_played = COALESCE(excluded.last_played, games.last_played),
+    title = COALESCE(games.calibrated_title, excluded.title),
+    platform_minutes = excluded.platform_minutes,
+    minutes = CASE
+      WHEN games.calibrated_minutes IS NOT NULL AND games.calibration_platform_minutes IS NOT NULL
+        THEN games.calibrated_minutes + MAX(0, excluded.platform_minutes - games.calibration_platform_minutes)
+      ELSE excluded.platform_minutes
+    END,
+    last_played = CASE
+      WHEN excluded.last_played IS NULL THEN games.last_played
+      WHEN games.last_played IS NULL OR excluded.last_played > games.last_played THEN excluded.last_played
+      ELSE games.last_played
+    END,
+    external_id = COALESCE(games.external_id, excluded.external_id),
+    platform_id = COALESCE(games.platform_id, excluded.platform_id),
+    concept_id = COALESCE(excluded.concept_id, games.concept_id),
+    time_status = 'known',
     cover_url = COALESCE(excluded.cover_url, games.cover_url),
     store_url = COALESCE(excluded.store_url, games.store_url),
     achievements_earned = COALESCE(excluded.achievements_earned, games.achievements_earned),
@@ -313,9 +479,29 @@ const upsertSyncedGame = db.prepare(`
     notes = excluded.notes,
     updated_at = CURRENT_TIMESTAMP
 `);
+const upsertPlaystationLibraryGame = db.prepare(`
+  INSERT INTO games(platform, title, minutes, platform_minutes, source, external_id, platform_id,
+                    concept_id, product_id, entitlement_id, library_status, time_status,
+                    cover_url, store_url, notes)
+  VALUES ('playstation', ?, 0, NULL, 'playstation-library', ?, ?, ?, ?, ?, ?, 'unknown', ?, ?, ?)
+  ON CONFLICT DO UPDATE SET
+    title = CASE WHEN games.time_status = 'unknown' THEN excluded.title ELSE games.title END,
+    concept_id = COALESCE(excluded.concept_id, games.concept_id),
+    product_id = COALESCE(excluded.product_id, games.product_id),
+    entitlement_id = COALESCE(excluded.entitlement_id, games.entitlement_id),
+    library_status = excluded.library_status,
+    cover_url = COALESCE(excluded.cover_url, games.cover_url),
+    store_url = COALESCE(excluded.store_url, games.store_url),
+    source = CASE WHEN games.time_status = 'unknown' THEN excluded.source ELSE games.source END,
+    notes = CASE WHEN games.time_status = 'unknown' THEN excluded.notes ELSE games.notes END,
+    updated_at = CURRENT_TIMESTAMP
+`);
 
-const findGameByExternalId = db.prepare("SELECT minutes FROM games WHERE platform = ? AND external_id = ?");
-const findGameByTitle = db.prepare("SELECT minutes FROM games WHERE platform = ? AND external_id IS NULL AND title = ? COLLATE NOCASE");
+const findGameByPlatformId = db.prepare(`
+  SELECT minutes, COALESCE(platform_minutes, minutes) AS platformMinutes
+  FROM games WHERE platform = ? AND (platform_id = ? OR (platform_id IS NULL AND external_id = ?))
+`);
+const findGameByTitle = db.prepare("SELECT minutes, COALESCE(platform_minutes, minutes) AS platformMinutes FROM games WHERE platform = ? AND platform_id IS NULL AND external_id IS NULL AND title = ? COLLATE NOCASE");
 const xboxAchievementTotals = db.prepare("SELECT external_id AS externalId, achievements_total AS total FROM games WHERE platform = 'xbox' AND external_id IS NOT NULL AND achievements_total > 0");
 const upsertDailyActivity = db.prepare(`
   INSERT INTO daily_activity(date, platform, game_key, external_id, title, minutes, precision, cover_url, store_url)
@@ -375,11 +561,51 @@ const upsertNintendoHistoryState = db.prepare(`
     total_played_days = excluded.total_played_days,
     synced_at = CURRENT_TIMESTAMP
 `);
+const listPlaystationCalibrationGames = db.prepare(`
+  SELECT id, title, minutes, COALESCE(platform_minutes, minutes) AS platformMinutes,
+         last_played AS lastPlayed, platform_id AS platformId, external_id AS externalId,
+         cover_url AS coverUrl, store_url AS storeUrl
+  FROM games
+  WHERE platform = 'playstation' AND COALESCE(platform_id, external_id) IS NOT NULL
+`);
+const listPlaystationAliases = db.prepare("SELECT alias_key AS aliasKey, platform_id AS platformId FROM playstation_title_aliases");
+const upsertPlaystationAlias = db.prepare(`
+  INSERT INTO playstation_title_aliases(alias_key, alias_title, platform_id, updated_at)
+  VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+  ON CONFLICT(alias_key) DO UPDATE SET
+    alias_title = excluded.alias_title,
+    platform_id = excluded.platform_id,
+    updated_at = CURRENT_TIMESTAMP
+`);
+const getPlaystationCalibrationState = db.prepare("SELECT fingerprint, calibrated_at AS calibratedAt, result_json AS resultJson FROM playstation_calibration_state WHERE id = 1");
+const savePlaystationCalibrationState = db.prepare(`
+  INSERT INTO playstation_calibration_state(id, fingerprint, calibrated_at, result_json)
+  VALUES (1, ?, ?, ?)
+`);
+const calibratePlaystationGame = db.prepare(`
+  UPDATE games SET
+    platform_minutes = COALESCE(platform_minutes, minutes),
+    calibrated_minutes = ?,
+    calibration_platform_minutes = COALESCE(platform_minutes, minutes),
+    calibrated_at = ?,
+    calibrated_title = ?,
+    title = ?,
+    minutes = ?,
+    last_played = CASE
+      WHEN ? IS NULL THEN last_played
+      WHEN last_played IS NULL OR ? > last_played THEN ?
+      ELSE last_played
+    END,
+    updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+`);
+const deletePlaystationDailyActivity = db.prepare("DELETE FROM daily_activity WHERE platform = 'playstation' AND external_id = ?");
+const deletePlaystationPlayEvents = db.prepare("DELETE FROM play_events WHERE platform = 'playstation' AND external_id = ?");
 
 function dashboardStats() {
   const base = db.prepare(`
     SELECT COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS gameCount, MAX(updated_at) AS latest
-    FROM games WHERE minutes > 0
+    FROM games WHERE minutes > 0 OR (platform = 'playstation' AND library_status IS NOT NULL)
   `).get();
   const totals = db.prepare(`SELECT platform, SUM(minutes) AS minutes FROM games WHERE minutes > 0 GROUP BY platform`).all();
   const achievementRows = db.prepare(`
@@ -419,20 +645,21 @@ function saveSyncedGames(games, source, { recordDelta = true } = {}) {
   db.exec("BEGIN IMMEDIATE");
   try {
     for (const game of games) {
-      const previous = game.externalId
-        ? findGameByExternalId.get(game.platform, game.externalId)
+      const platformId = game.platformId || game.externalId || null;
+      const previous = platformId
+        ? findGameByPlatformId.get(game.platform, platformId, platformId)
         : findGameByTitle.get(game.platform, game.title);
-      const delta = cumulativeDelta(previous?.minutes, game.minutes);
-      const gameKey = game.externalId || String(game.title).trim().toLocaleLowerCase("zh-CN");
+      const delta = cumulativeDelta(previous?.platformMinutes, game.minutes);
+      const gameKey = platformId || String(game.title).trim().toLocaleLowerCase("zh-CN");
       if (recordDelta && delta > 0) {
-        upsertDailyActivity.run(activityDate(game.lastPlayed), game.platform, gameKey, game.externalId || null, game.title, delta, game.coverUrl || null, game.storeUrl || null);
+        upsertDailyActivity.run(activityDate(game.lastPlayed), game.platform, gameKey, platformId, game.title, delta, game.coverUrl || null, game.storeUrl || null);
         addedMinutes += delta;
       }
       if (/^\d{4}-\d{2}-\d{2}$/.test(game.lastPlayed || "")) {
-        upsertPlayEvent.run(game.lastPlayed, game.platform, gameKey, game.externalId || null, game.title, game.coverUrl || null, game.storeUrl || null);
+        upsertPlayEvent.run(game.lastPlayed, game.platform, gameKey, platformId, game.title, game.coverUrl || null, game.storeUrl || null);
       }
       const achievementMarker = game.achievementsTotal === null || game.achievementsTotal === undefined ? null : Number(game.achievementsTotal);
-      upsertSyncedGame.run(game.platform, game.title, game.minutes, game.lastPlayed || null, source, game.externalId || null, game.coverUrl || null, game.storeUrl || null,
+      upsertSyncedGame.run(game.platform, game.title, game.minutes, game.minutes, game.lastPlayed || null, source, platformId, platformId, game.conceptId || null, game.coverUrl || null, game.storeUrl || null,
         game.achievementsEarned ?? null, game.achievementsTotal ?? null, achievementMarker, game.notes || "");
     }
     db.exec("COMMIT");
@@ -441,6 +668,118 @@ function saveSyncedGames(games, source, { recordDelta = true } = {}) {
     throw error;
   }
   return addedMinutes;
+}
+
+function savePlaystationLibraryGames(games) {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const game of games) {
+      const platformId = game.platformId || game.externalId;
+      if (!platformId) continue;
+      upsertPlaystationLibraryGame.run(
+        game.title,
+        platformId,
+        platformId,
+        game.conceptId || null,
+        game.productId || null,
+        game.entitlementId || null,
+        game.libraryStatus || "inactive",
+        game.coverUrl || null,
+        game.storeUrl || null,
+        game.notes || "PlayStation 游戏库"
+      );
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+function responseError(message, status = 400) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function calibratePlaystationFromGameplay(records, parseErrors = []) {
+  const fingerprint = playstationCalibrationFingerprint(records);
+  const existingState = getPlaystationCalibrationState.get();
+  if (existingState) {
+    if (existingState.fingerprint !== fingerprint) {
+      throw responseError("PlayStation 已完成一次性 Excel 校准；不能再导入另一份校准文件", 409);
+    }
+    return { ...JSON.parse(existingState.resultJson), duplicate: true };
+  }
+
+  const games = listPlaystationCalibrationGames.all();
+  const aliases = new Map(listPlaystationAliases.all().map((row) => [String(row.aliasKey), String(row.platformId)]));
+  const assignedPlatformIds = new Set();
+  const matched = [];
+  const unmatched = [];
+  for (const record of records) {
+    const match = matchPlaystationCalibrationRecord(record, games, aliases);
+    const platformId = match ? String(match.game.platformId || match.game.externalId || "") : "";
+    if (!match || !platformId || assignedPlatformIds.has(platformId)) {
+      unmatched.push({ title: record.title, reason: match ? "多个 Excel 标题匹配到同一个 PlayStation 游戏" : "没有找到可确认的 PlayStation titleId 匹配" });
+      continue;
+    }
+    assignedPlatformIds.add(platformId);
+    matched.push({ record, match, platformId });
+  }
+  if (!matched.length) throw responseError("Gameplay Online 中的游戏均未能匹配现有 PlayStation titleId，未执行校准");
+
+  const calibratedAt = new Date().toISOString();
+  const result = {
+    imported: matched.length,
+    skipped: unmatched.length + parseErrors.length,
+    calibratedAt,
+    duplicate: false,
+    historyRows: matched.reduce((sum, item) => sum + item.record.history.length, 0),
+    errors: [...unmatched, ...parseErrors].slice(0, 50),
+    matches: matched.map(({ record, match, platformId }) => ({
+      excelTitle: record.title,
+      title: match.game.title,
+      platformId,
+      calibratedMinutes: record.minutes,
+      calibrationPlatformMinutes: Number(match.game.platformMinutes || 0),
+      method: match.method
+    }))
+  };
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const { record, match, platformId } of matched) {
+      const game = match.game;
+      const finalMinutes = calibratedFinalMinutes(game.platformMinutes, record.minutes, game.platformMinutes);
+      calibratePlaystationGame.run(
+        record.minutes,
+        calibratedAt,
+        record.title,
+        record.title,
+        finalMinutes,
+        record.lastPlayed || null,
+        record.lastPlayed || null,
+        record.lastPlayed || null,
+        game.id
+      );
+      upsertPlaystationAlias.run(playstationTitleKey(record.title), record.title, platformId);
+      deletePlaystationDailyActivity.run(platformId);
+      deletePlaystationPlayEvents.run(platformId);
+      for (const history of record.history) {
+        if (history.minutes > 0) {
+          setDailyActivity.run(history.date, "playstation", platformId, platformId, record.title, history.minutes, game.coverUrl || null, game.storeUrl || null);
+        }
+        upsertPlayEvent.run(history.date, "playstation", platformId, platformId, record.title, game.coverUrl || null, game.storeUrl || null);
+      }
+    }
+    savePlaystationCalibrationState.run(fingerprint, calibratedAt, JSON.stringify(result));
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return result;
 }
 
 db.exec(`
@@ -466,12 +805,14 @@ async function syncPlaystation() {
     const snapshot = await playstation.fetchSnapshot(connection.accessToken);
     const games = snapshot.games;
     saveSyncedGames(games, "playstation-sync");
+    savePlaystationLibraryGames(snapshot.libraryGames || []);
     if (snapshot.achievementSummary) {
       upsertPlatformStats.run("playstation", snapshot.achievementSummary.achievementsEarned, snapshot.achievementSummary.completedGames);
     }
-    connection = { ...connection, lastSyncAt: new Date().toISOString(), lastError: null, itemCount: games.length };
+    const itemCount = new Set([...games, ...(snapshot.libraryGames || [])].map((game) => game.externalId)).size;
+    connection = { ...connection, lastSyncAt: new Date().toISOString(), lastError: snapshot.libraryError || null, itemCount };
     credentials.set("playstation", connection);
-    return { synced: games.length, connection: publicConnection("playstation") };
+    return { synced: games.length, librarySynced: Number(snapshot.libraryGames?.length || 0), connection: publicConnection("playstation") };
   } catch (error) {
     credentials.set("playstation", { ...connection, lastError: error.message || "同步失败" });
     throw error;
@@ -734,6 +1075,7 @@ app.delete("/api/connections/playstation", (_req, res) => {
 });
 
 app.post("/api/connections/xbox", async (req, res, next) => {
+  let accountConnected = false;
   try {
     const apiKey = String(req.body.apiKey || "").trim();
     if (apiKey.length < 16 || apiKey.length > 1024) return res.status(400).json({ error: "OpenXBL API Key 格式无效" });
@@ -746,9 +1088,10 @@ app.post("/api/connections/xbox", async (req, res, next) => {
       lastError: null,
       itemCount: 0
     });
+    accountConnected = true;
     res.json(await syncXbox());
   } catch (error) {
-    credentials.delete("xbox");
+    if (!accountConnected) credentials.delete("xbox");
     next(error);
   }
 });
@@ -811,6 +1154,7 @@ app.delete("/api/connections/nintendo", (_req, res) => {
 });
 
 app.post("/api/connections/steam", async (req, res, next) => {
+  let accountConnected = false;
   try {
     const apiKey = String(req.body.apiKey || "").trim();
     const identity = String(req.body.identity || "").trim();
@@ -824,9 +1168,10 @@ app.post("/api/connections/steam", async (req, res, next) => {
       lastError: null,
       itemCount: 0
     });
+    accountConnected = true;
     res.json(await syncSteam());
   } catch (error) {
-    credentials.delete("steam");
+    if (!accountConnected) credentials.delete("steam");
     next(error);
   }
 });
@@ -876,13 +1221,7 @@ app.delete("/api/connections/rawg", (_req, res) => {
   res.status(204).end();
 });
 
-async function spreadsheetRows(buffer, filename) {
-  const workbook = new ExcelJS.Workbook();
-  if (filename.toLowerCase().endsWith(".csv")) {
-    await workbook.csv.read(Readable.from([buffer]));
-  } else {
-    await workbook.xlsx.load(buffer);
-  }
+function spreadsheetRowsFromWorkbook(workbook) {
   const rows = [];
   workbook.eachSheet((sheet) => {
     const headers = [];
@@ -897,13 +1236,30 @@ async function spreadsheetRows(buffer, filename) {
   return rows;
 }
 
+async function spreadsheetRows(buffer, filename) {
+  const workbook = new ExcelJS.Workbook();
+  if (filename.toLowerCase().endsWith(".csv")) await workbook.csv.read(Readable.from([buffer]));
+  else await workbook.xlsx.load(buffer);
+  return spreadsheetRowsFromWorkbook(workbook);
+}
+
 app.post("/api/import", upload.single("file"), async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: "请选择文件" });
     const filename = req.file.originalname.toLowerCase();
     let rows;
     if (filename.endsWith(".json")) rows = parseJsonRows(req.file.buffer.toString("utf8"));
-    else if (filename.endsWith(".csv") || filename.endsWith(".xlsx")) rows = await spreadsheetRows(req.file.buffer, filename);
+    else if (filename.endsWith(".xlsx")) {
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(req.file.buffer);
+      const gameplay = parsePlaystationGameplayWorkbook(workbook);
+      if (gameplay) {
+        return res.status(422).json({
+          error: "Gameplay Online 只包含部分在线会话，不能用于校准 PlayStation 总时长；请提供包含 Gameplay Detail 的 Sony 隐私数据文件"
+        });
+      }
+      rows = spreadsheetRowsFromWorkbook(workbook);
+    } else if (filename.endsWith(".csv")) rows = await spreadsheetRows(req.file.buffer, filename);
     else return res.status(400).json({ error: "仅支持 .xlsx、.csv 或 .json" });
 
     const { records, errors } = normalizeRows(rows, req.body.platform);
@@ -917,11 +1273,12 @@ app.post("/api/import", upload.single("file"), async (req, res, next) => {
 app.use((error, _req, res, _next) => {
   console.error(error);
   if (error?.code?.startsWith("SQLITE_CONSTRAINT")) return res.status(409).json({ error: "该平台已经存在同名游戏" });
-  res.status(500).json({ error: error.message || "服务器错误" });
+  res.status(Number(error?.status) || 500).json({ error: error.message || "服务器错误" });
 });
 
 app.listen(port, () => {
   console.log(`游戏时长记录已启动：http://localhost:${port}`);
+  if (outboundProxy.enabled) console.log(`平台接口已使用${outboundProxy.source === "macos" ? " macOS 系统" : "环境变量"}代理`);
   if (admin) console.log(`公网只读保护已启用；管理凭据来源：${admin.source === "environment" ? "环境变量" : path.join(dataDir, "admin-access.json")}`);
 });
 

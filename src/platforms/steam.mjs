@@ -1,13 +1,81 @@
+import { Resolver } from "node:dns/promises";
+import { Agent } from "undici";
+
 const API_BASE = "https://api.steampowered.com";
+const API_HOST = new URL(API_BASE).hostname;
+const publicDnsServers = ["1.1.1.1", "8.8.8.8"];
+const steamAgents = new Map();
+let workingSteamAgent = null;
 
 function steamHeaders(apiKey) {
   return { "x-webapi-key": apiKey, Accept: "application/json" };
 }
 
+function agentForAddress(address) {
+  if (!steamAgents.has(address)) {
+    steamAgents.set(address, new Agent({
+      connect: {
+        lookup(_hostname, _options, callback) {
+          callback(null, address, 4);
+        }
+      }
+    }));
+  }
+  return steamAgents.get(address);
+}
+
+async function publicDnsAddresses(hostname) {
+  const answers = await Promise.allSettled(publicDnsServers.map(async (server) => {
+    const resolver = new Resolver();
+    resolver.setServers([server]);
+    return resolver.resolve4(hostname);
+  }));
+  return [...new Set(answers.flatMap((answer) => answer.status === "fulfilled" ? answer.value : []))];
+}
+
+async function fetchWithTimeout(fetchFn, url, options, timeoutMs, dispatcher = null) {
+  return fetchFn(url, {
+    ...options,
+    ...(dispatcher ? { dispatcher } : {}),
+    signal: AbortSignal.timeout(timeoutMs)
+  });
+}
+
+async function resilientSteamFetch(fetchFn, url, options) {
+  if (fetchFn !== fetch) return fetchFn(url, options);
+  if (workingSteamAgent) {
+    try {
+      return await fetchWithTimeout(fetchFn, url, options, 15_000, workingSteamAgent);
+    } catch {
+      workingSteamAgent = null;
+    }
+  }
+
+  let originalError;
+  try {
+    return await fetchWithTimeout(fetchFn, url, options, 10_000);
+  } catch (error) {
+    originalError = error;
+  }
+
+  const addresses = await publicDnsAddresses(API_HOST);
+  for (const address of addresses.reverse()) {
+    const agent = agentForAddress(address);
+    try {
+      const response = await fetchWithTimeout(fetchFn, url, options, 12_000, agent);
+      workingSteamAgent = agent;
+      return response;
+    } catch {
+      // 公共 DNS 可能返回多个 CDN 节点，继续尝试下一个地址。
+    }
+  }
+  throw new Error(`Steam API 网络连接失败：${originalError?.message || "无法连接 api.steampowered.com"}`);
+}
+
 async function steamRequest(fetchFn, apiKey, pathname, params = {}) {
   const url = new URL(`${API_BASE}${pathname}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
-  const response = await fetchFn(url, { headers: steamHeaders(apiKey) });
+  const response = await resilientSteamFetch(fetchFn, url, { headers: steamHeaders(apiKey) });
   const payload = await response.json().catch(() => null);
   if (response.status === 401 || response.status === 403) throw new Error("Steam Web API Key 无效，或无权读取该账号");
   if (!response.ok) throw new Error(payload?.response?.message || `Steam Web API 请求失败（${response.status}）`);

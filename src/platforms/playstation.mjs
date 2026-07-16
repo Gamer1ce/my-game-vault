@@ -2,6 +2,7 @@ import {
   exchangeAccessCodeForAuthTokens,
   exchangeNpssoForAccessCode,
   exchangeRefreshTokenForAuthTokens,
+  getPurchasedGames,
   getUserPlayedGames,
   getUserTrophyProfileSummary,
   getUserTitles
@@ -11,6 +12,7 @@ const defaultApi = {
   exchangeAccessCodeForAuthTokens,
   exchangeNpssoForAccessCode,
   exchangeRefreshTokenForAuthTokens,
+  getPurchasedGames,
   getUserPlayedGames,
   getUserTrophyProfileSummary,
   getUserTitles
@@ -80,6 +82,7 @@ export function normalizePlaystationTitles(titles) {
     .map((title) => ({
       platform: "playstation",
       externalId: String(title.titleId),
+      conceptId: title?.concept?.id ? String(title.concept.id) : null,
       title: String(title.localizedName || title.name).trim(),
       coverUrl: playstationCover(title),
       storeUrl: playstationStore(title),
@@ -89,7 +92,43 @@ export function normalizePlaystationTitles(titles) {
     }));
 }
 
+export function normalizePlaystationLibraryGames(games) {
+  return (games || []).filter((game) => game?.titleId && game?.name).map((game) => {
+    const conceptId = game.conceptId ? String(game.conceptId) : null;
+    const productId = String(game.productId || "").trim() || null;
+    return {
+      platform: "playstation",
+      externalId: String(game.titleId),
+      conceptId,
+      productId,
+      entitlementId: String(game.entitlementId || "").trim() || null,
+      title: String(game.name).trim(),
+      coverUrl: game.image?.url || null,
+      storeUrl: conceptId
+        ? `https://store.playstation.com/concept/${conceptId}`
+        : productId
+          ? `https://store.playstation.com/product/${encodeURIComponent(productId)}`
+          : `https://store.playstation.com/search/${encodeURIComponent(game.name)}`,
+      libraryStatus: game.isActive ? "active" : "inactive",
+      notes: `PlayStation 游戏库 · ${game.platform || "PS4/PS5"}`
+    };
+  });
+}
+
 export function createPlaystationConnector(api = defaultApi) {
+  async function fetchPurchasedLibrary(authorization, isActive) {
+    if (typeof api.getPurchasedGames !== "function") return [];
+    const games = [];
+    const size = 24;
+    for (let start = 0; start < 2400; start += size) {
+      const response = await api.getPurchasedGames(authorization, { isActive, size, start });
+      const page = response?.data?.purchasedTitlesRetrieve?.games || [];
+      games.push(...page);
+      if (page.length < size) break;
+    }
+    return games;
+  }
+
   async function fetchSnapshot(accessToken) {
       const authorization = { accessToken };
       const titles = [];
@@ -105,7 +144,19 @@ export function createPlaystationConnector(api = defaultApi) {
         offset = next;
       }
       const games = normalizePlaystationTitles(titles);
-      if (typeof api.getUserTitles !== "function") return { games, achievementSummary: null };
+      let libraryGames = [];
+      let libraryError = null;
+      try {
+        const [active, inactive] = await Promise.all([
+          fetchPurchasedLibrary(authorization, true),
+          fetchPurchasedLibrary(authorization, false)
+        ]);
+        const byTitleId = new Map([...inactive, ...active].map((game) => [String(game.titleId), game]));
+        libraryGames = normalizePlaystationLibraryGames([...byTitleId.values()]);
+      } catch (error) {
+        libraryError = error?.message || "PlayStation 游戏库读取失败";
+      }
+      if (typeof api.getUserTitles !== "function") return { games, libraryGames, libraryError, achievementSummary: null };
       const trophyTitles = [];
       let trophyOffset = 0;
       const trophyLimit = 200;
@@ -133,7 +184,7 @@ export function createPlaystationConnector(api = defaultApi) {
         if (profile?.error) throw new Error(profile.error?.message || profile.error?.code || "PlayStation 奖杯汇总读取失败");
         achievementSummary = normalizePlaystationSummary(profile);
       }
-      return { games: mergedGames, achievementSummary };
+      return { games: mergedGames, libraryGames, libraryError, achievementSummary };
   }
 
   return {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPlaystationConnector, normalizePlaystationAchievements, normalizePlaystationSummary, normalizePlaystationTitles, parseIsoDurationToMinutes } from "../src/platforms/playstation.mjs";
+import { createPlaystationConnector, normalizePlaystationAchievements, normalizePlaystationLibraryGames, normalizePlaystationSummary, normalizePlaystationTitles, parseIsoDurationToMinutes } from "../src/platforms/playstation.mjs";
 
 test("解析 PSN ISO 8601 时长", () => {
   assert.equal(parseIsoDurationToMinutes("PT228H56M33S"), 13737);
@@ -10,7 +10,26 @@ test("解析 PSN ISO 8601 时长", () => {
 
 test("规范化 PSN 游戏记录", () => {
   const records = normalizePlaystationTitles([{ titleId: "PPSA00001", name: "Game", localizedName: "游戏", playDuration: "PT12H30M", lastPlayedDateTime: "2026-07-01T10:00:00Z", category: "ps5_native_game", playCount: 8 }]);
-  assert.deepEqual(records[0], { platform: "playstation", externalId: "PPSA00001", title: "游戏", coverUrl: null, storeUrl: "https://store.playstation.com/search/%E6%B8%B8%E6%88%8F", minutes: 750, lastPlayed: "2026-07-01", notes: "ps5_native_game · 启动 8 次" });
+  assert.deepEqual(records[0], { platform: "playstation", externalId: "PPSA00001", conceptId: null, title: "游戏", coverUrl: null, storeUrl: "https://store.playstation.com/search/%E6%B8%B8%E6%88%8F", minutes: 750, lastPlayed: "2026-07-01", notes: "ps5_native_game · 启动 8 次" });
+});
+
+test("规范化 PlayStation 购买游戏库且不伪造时长", () => {
+  assert.deepEqual(normalizePlaystationLibraryGames([{
+    titleId: "PPSA00002_00", conceptId: "10001", productId: "HP0001-PPSA00002_00-GAME000000000001",
+    entitlementId: "entitlement", name: "Library Game", platform: "PS5", isActive: true,
+    image: { url: "https://image.example/game.jpg" }
+  }])[0], {
+    platform: "playstation",
+    externalId: "PPSA00002_00",
+    conceptId: "10001",
+    productId: "HP0001-PPSA00002_00-GAME000000000001",
+    entitlementId: "entitlement",
+    title: "Library Game",
+    coverUrl: "https://image.example/game.jpg",
+    storeUrl: "https://store.playstation.com/concept/10001",
+    libraryStatus: "active",
+    notes: "PlayStation 游戏库 · PS5"
+  });
 });
 
 test("汇总 PlayStation 奖杯并识别全成就", () => {

@@ -2,7 +2,7 @@ const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 const HIGHLIGHT_INITIAL_COUNT = 4;
 const HIGHLIGHT_PAGE_SIZE = 8;
-const state = { games: [], highlights: [], visibleHighlights: HIGHLIGHT_INITIAL_COUNT, highlightStorage: { available: true, customDirectory: false }, recentActivity: { days: [], totalMinutes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const state = { games: [], highlights: [], visibleHighlights: HIGHLIGHT_INITIAL_COUNT, highlightStorage: { available: true, customDirectory: false }, recentActivity: { days: [], totalMinutes: 0 }, guestbook: { messages: [], likes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -141,8 +141,8 @@ function render() {
   const games = state.games.filter((game) => (state.platform === "all" || game.platform === state.platform) && game.title.toLowerCase().includes(state.query));
   $("#games").innerHTML = games.map((game) => `<article class="game platform-${game.platform}">
     ${posterMarkup(game)}
-    <div class="game-content"><div class="game-top"><span class="badge">${platformIcon(game.platform)}<span>${platformNames[game.platform]}</span></span><span class="source">${game.source === "manual" ? "历史记录" : game.source.endsWith("-sync") ? "官方同步" : "官方文件"}</span></div>
-    <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours">${formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line" title="${Number(game.achievementsTotal) > 0 ? "已解锁 / 总成就" : "OpenXBL 当前未提供该游戏的总成就数"}">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`).join("");
+    <div class="game-content"><div class="game-top"><span class="badge">${platformIcon(game.platform)}<span>${platformNames[game.platform]}</span></span><span class="source">${game.source === "manual" ? "历史记录" : game.source === "playstation-library" ? "已拥有" : game.source.endsWith("-sync") ? "官方同步" : "官方文件"}</span></div>
+    <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours ${game.timeStatus === "unknown" ? "hours-unknown" : ""}">${game.timeStatus === "unknown" ? "时长未知" : formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : game.timeStatus === "unknown" ? "Sony 游戏库记录" : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line" title="${Number(game.achievementsTotal) > 0 ? "已解锁 / 总成就" : "OpenXBL 当前未提供该游戏的总成就数"}">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`).join("");
   const publicInstanceEmpty = state.security.publicMode && state.games.length === 0;
   $("#emptyTitle").textContent = publicInstanceEmpty ? "公网实例尚未载入游戏数据" : "还没有官方游戏记录";
   $("#emptyMessage").textContent = publicInstanceEmpty
@@ -154,6 +154,103 @@ function render() {
 
 async function load() { const result = await api("/api/games"); state.games = result.games; state.stats = result.stats || null; render(); }
 function toast(message) { const el = $("#toast"); el.textContent = message; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2800); }
+
+function renderLikeCount() {
+  $("#siteLikeCount").textContent = Math.max(0, Number(state.guestbook.likes || 0)).toLocaleString("zh-CN");
+}
+
+function renderDanmaku() {
+  const messages = state.guestbook.messages || [];
+  const stage = $("#danmakuStage");
+  stage.replaceChildren();
+  if (!messages.length) return;
+  const laneCount = window.matchMedia("(max-width: 560px)").matches ? 1 : 2;
+  const fragment = document.createDocumentFragment();
+  for (let laneIndex = 0; laneIndex < laneCount; laneIndex += 1) {
+    const laneMessages = messages.filter((_item, index) => index % laneCount === laneIndex);
+    if (!laneMessages.length) continue;
+    const lane = document.createElement("div");
+    lane.className = "danmaku-lane";
+    lane.style.setProperty("--lane", String(laneIndex));
+    const track = document.createElement("div");
+    track.className = "danmaku-track";
+    track.style.setProperty("--duration", `${Math.max(20, laneMessages.length * 5)}s`);
+    track.style.setProperty("--delay", `${-laneIndex * 4.5}s`);
+    laneMessages.forEach((item) => {
+      const bullet = document.createElement("span");
+      bullet.className = "danmaku-item";
+      bullet.dataset.messageId = String(item.id);
+      bullet.title = item.createdAt ? new Date(`${item.createdAt}Z`).toLocaleString() : "玩家留言";
+      bullet.textContent = item.message;
+      track.append(bullet);
+    });
+    lane.append(track);
+    fragment.append(lane);
+  }
+  stage.append(fragment);
+}
+
+async function loadGuestbook() {
+  const result = await api("/api/guestbook");
+  const currentIds = state.guestbook.messages.map((item) => item.id).join(",");
+  const nextMessages = Array.isArray(result.messages) ? result.messages : [];
+  const nextIds = nextMessages.map((item) => item.id).join(",");
+  state.guestbook.likes = Number(result.likes || 0);
+  renderLikeCount();
+  if (currentIds !== nextIds) {
+    state.guestbook.messages = nextMessages;
+    renderDanmaku();
+  }
+}
+
+$("#guestbookForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type=submit]");
+  button.disabled = true;
+  try {
+    const body = Object.fromEntries(new FormData(form));
+    const result = await api("/api/guestbook", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    if (result?.message) {
+      state.guestbook.messages = [...state.guestbook.messages, result.message].slice(-36);
+      form.elements.message.value = "";
+      renderDanmaku();
+      toast("留言已接入通讯频道");
+    }
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+$("#guestbookForm").elements.message.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter" || event.isComposing) return;
+  event.preventDefault();
+  event.currentTarget.form.requestSubmit();
+});
+
+$("#siteLikeButton").addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  state.guestbook.likes += 1;
+  renderLikeCount();
+  button.classList.remove("is-liked");
+  void button.offsetWidth;
+  button.classList.add("is-liked");
+  try {
+    const result = await api("/api/likes", { method:"POST" });
+    state.guestbook.likes = Math.max(state.guestbook.likes, Number(result.likes || 0));
+    renderLikeCount();
+  } catch (error) {
+    state.guestbook.likes = Math.max(0, state.guestbook.likes - 1);
+    renderLikeCount();
+    toast(error.message);
+  }
+});
+
+const compactGuestbook = window.matchMedia("(max-width: 560px)");
+compactGuestbook.addEventListener?.("change", renderDanmaku);
+setInterval(() => { if (document.visibilityState === "visible") loadGuestbook().catch(() => {}); }, 30_000);
 
 function compactTime(minutes) {
   const value = Math.max(0, Number(minutes || 0));
@@ -581,4 +678,4 @@ window.addEventListener("scroll", () => {
   }
 }, { passive: true });
 
-loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights(), loadRecentActivity()])).catch((error) => toast(error.message));
+loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights(), loadRecentActivity(), loadGuestbook()])).catch((error) => toast(error.message));
