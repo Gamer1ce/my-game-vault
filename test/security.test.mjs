@@ -23,6 +23,27 @@ test("拒绝跨站写操作并允许同源请求", () => {
   assert.equal(isSameOriginWrite({ origin: null, host: "games.example.com", protocol: "https", fetchSite: "none" }), true);
 });
 
+test("允许浏览器确认的 IPv6 与代理同源写操作", () => {
+  assert.equal(isSameOriginWrite({
+    origin: "https://[240e:1234::1]:8443",
+    host: "127.0.0.1:4173",
+    protocol: "http",
+    fetchSite: "same-origin"
+  }), true);
+  assert.equal(isSameOriginWrite({
+    origin: "http://[240e:1234::1]:4173",
+    host: "[240e:1234::1]:4173",
+    protocol: "http",
+    fetchSite: undefined
+  }), true);
+  assert.equal(isSameOriginWrite({
+    origin: "https://attacker.example",
+    host: "[240e:1234::1]:4173",
+    protocol: "http",
+    fetchSite: "cross-site"
+  }), false);
+});
+
 test("只有回环地址可通过明文 HTTP 管理", () => {
   assert.equal(isLoopbackHost("localhost:4173"), true);
   assert.equal(isLoopbackHost("127.0.0.1:4173"), true);

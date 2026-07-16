@@ -282,6 +282,7 @@ npm start
 - 在云平台的 Secret/Environment Variables 中配置 `ADMIN_PASSWORD`，不要写进源码、启动脚本、Dockerfile 或 GitHub Actions 日志。
 - 如果没有配置环境变量，首次开启公网模式会生成权限为 `600` 的 `data/admin-access.json`；该文件已被 Git 忽略。托管平台重建实例时可能丢失本地文件，因此正式公网部署更推荐环境变量和持久化 `data` 卷。
 - `TRUST_PROXY=1` 只应在应用确实位于单层可信反向代理之后时开启。公网必须使用 HTTPS，否则登录密码和会话仍可能在传输途中泄露。
+- 访客留言与点赞会校验浏览器的 Fetch Metadata。明确的跨站请求会被拒绝；IPv6、HTTPS 终止或可信代理造成的内部 Host/协议变化不会误伤同源访客。
 - 明文 HTTP 公网地址只提供只读访问，页面不会显示管理员入口；管理员登录只允许 `localhost` 回环地址或 HTTPS。使用当前 FRP 地址时，请在本机 `http://localhost:4173` 管理数据，朋友继续使用公网地址查看。
 - 管理员登录成功后使用 `HttpOnly`、`SameSite=Strict` 的 8 小时会话；写操作还会检查同源请求。连续输错会触发 15 分钟登录限流。
 - 服务会返回 CSP、禁止 iframe、禁止 MIME 嗅探等基础安全响应头；访客拿不到平台令牌或 API Key，连接错误详情也只对管理员显示。

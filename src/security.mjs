@@ -18,7 +18,12 @@ export function parseCookies(header = "") {
 }
 
 export function isSameOriginWrite({ origin, host, protocol, fetchSite }) {
-  if (fetchSite === "cross-site") return false;
+  const site = String(fetchSite || "").toLowerCase();
+  if (site === "cross-site") return false;
+  // Browsers set Sec-Fetch-Site themselves. Trust an explicit same-origin
+  // signal so IPv6 access and trusted proxies do not fail merely because the
+  // public Host/protocol differs from the backend connection.
+  if (site === "same-origin") return true;
   if (!origin) return true;
   try {
     const parsed = new URL(origin);
