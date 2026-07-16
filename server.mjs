@@ -446,8 +446,8 @@ const listGames = db.prepare(`
          achievements_earned AS achievementsEarned, achievements_total AS achievementsTotal,
          notes, updated_at AS updatedAt
   FROM games
-  WHERE minutes > 0 OR (platform = 'playstation' AND library_status IS NOT NULL)
-  ORDER BY time_status = 'unknown', minutes DESC, title COLLATE NOCASE
+  WHERE time_status = 'known' AND minutes > 0
+  ORDER BY minutes DESC, title COLLATE NOCASE
 `);
 
 const upsertSyncedGame = db.prepare(`
@@ -605,7 +605,7 @@ const deletePlaystationPlayEvents = db.prepare("DELETE FROM play_events WHERE pl
 function dashboardStats() {
   const base = db.prepare(`
     SELECT COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS gameCount, MAX(updated_at) AS latest
-    FROM games WHERE minutes > 0 OR (platform = 'playstation' AND library_status IS NOT NULL)
+    FROM games WHERE time_status = 'known' AND minutes > 0
   `).get();
   const totals = db.prepare(`SELECT platform, SUM(minutes) AS minutes FROM games WHERE minutes > 0 GROUP BY platform`).all();
   const achievementRows = db.prepare(`

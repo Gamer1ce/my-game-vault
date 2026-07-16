@@ -152,7 +152,12 @@ function render() {
   $("#scoreAttribution").classList.toggle("hidden", !state.games.some((game) => game.metacriticScore !== null && game.metacriticScore !== undefined && Number.isInteger(Number(game.metacriticScore))));
 }
 
-async function load() { const result = await api("/api/games"); state.games = result.games; state.stats = result.stats || null; render(); }
+async function load() {
+  const result = await api("/api/games");
+  state.games = result.games.filter((game) => game.timeStatus !== "unknown" && Number(game.minutes) > 0);
+  state.stats = result.stats || null;
+  render();
+}
 function toast(message) { const el = $("#toast"); el.textContent = message; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2800); }
 
 function renderLikeCount() {
