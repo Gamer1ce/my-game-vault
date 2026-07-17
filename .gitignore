@@ -10,6 +10,8 @@ data/highlights-path.txt
 data/remote-media.env
 data/remote-media.json
 data/remote-media.json.tmp
+data/baidu-media.env
+data/baidu-media-token.json
 data/backups/
 data/highlights/
 .DS_Store

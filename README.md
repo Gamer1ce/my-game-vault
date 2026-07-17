@@ -114,6 +114,17 @@ MP4/MOV 可以执行一次无损 Fast Start：`npm run media:faststart`。命令
 
 `data/highlights/` 已加入 `.gitignore`，媒体不会随源码上传 GitHub。但开启公网分享后，放入其中的每个文件都会对拿到网站地址的人可见；请先移除不希望公开的截图、文件名和照片定位等元数据。视频也会占用运行网站这台电脑的上行带宽，建议先压缩体积。
 
+### 百度网盘指定目录播放验证
+
+项目提供独立验证工具，用来确认百度网盘指定目录能否读取、临时 `dlink` 是否支持 HTTP Range 分段播放。验证通过前不会把百度网盘接入正式播放器，也不会把访问令牌发送给网页访客。
+
+1. 在百度网盘开放平台创建应用，取得 App Key 与 Secret Key；回调地址登记为 `http://127.0.0.1:4174/callback`。
+2. 把 `baidu-media.env.example` 复制为 `data/baidu-media.env`，填写应用信息和测试目录。真实密钥文件已被 Git 忽略。
+3. 执行 `source data/baidu-media.env && npm run media:baidu:authorize`，打开终端显示的官方授权地址并授权自己的账号。令牌只会保存到权限为 `600` 的 `data/baidu-media-token.json`。
+4. 执行 `source data/baidu-media.env && npm run media:baidu:verify`。工具会列出目录、选择一个视频、取得临时地址，并只请求前 64 KiB 检查是否返回 `206 Partial Content`。
+
+只有看到“结论：通过”时，才说明百度下载节点具备分段读取条件。它仍不代表手机公网播放一定可用：还需在手机流量下确认链接有效期、浏览器兼容性和百度当前应用权限。验证工具不会打印 `dlink`、Access Token 或 Secret Key。
+
 #### 把媒体库放在外置硬盘
 
 macOS 用户可以双击项目根目录的 `设置精彩时刻文件夹.command`，选择外置硬盘上的任意文件夹。程序只保存该文件夹的路径，图片和视频仍留在外置硬盘，不会复制到电脑或 GitHub。配置文件是本机私有的 `data/highlights-path.txt`，已经被 Git 忽略。
