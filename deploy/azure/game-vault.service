@@ -1,0 +1,27 @@
+[Unit]
+Description=My Game Vault Azure backup
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=azureuser
+Group=azureuser
+WorkingDirectory=/srv/game-vault/app
+Environment=NODE_ENV=production
+Environment=PORT=4173
+Environment=PUBLIC_MODE=1
+Environment=TRUST_PROXY=1
+Environment=DATA_DIR=/srv/game-vault/data
+Environment=HIGHLIGHTS_DIR=/srv/game-vault/media
+ExecStart=/usr/bin/node server.mjs
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/game-vault/data
+
+[Install]
+WantedBy=multi-user.target

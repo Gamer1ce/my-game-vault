@@ -219,6 +219,34 @@ npm start
 
 连接成功后会立即同步一次。服务启动后也会自动检查已连接的平台，持续运行时每小时再次同步。管理员还可使用页面底部的“立即同步游戏数据”一次更新全部已连接平台，或在“数据来源”中单独同步某个平台。手动同步和定时同步重叠时只会执行同一轮任务，避免重复请求平台接口。
 
+## Azure 只读备用站
+
+项目提供一套 Azure VM 备用部署方案。Mac 仍是唯一的平台授权和同步来源；Azure 只接收 SQLite 一致性快照、网页源码和精彩时刻媒体，不上传 `.credential-key`、`credentials.enc`、百度网盘令牌或其他平台凭据。这样即使家庭网络或隧道临时不可用，朋友仍可从备用域名查看最近一次镜像。
+
+仓库中的相关文件：
+
+- `deploy/azure/bootstrap.sh`：在 Ubuntu 24.04 安装 Node.js 22、Caddy 和系统服务。
+- `deploy/azure/game-vault.service`：以普通用户运行网站，仅允许应用写入数据目录。
+- `deploy/azure/Caddyfile`：为 `azure.gamer1ce.top` 自动申请 HTTPS 并反向代理到 Node.js。
+- `scripts/cloudflare-azure-dns.mjs`：使用已保存在 macOS 钥匙串中的 Cloudflare DNS Token 创建或更新备用域名，不把 Token 写进源码。
+- `scripts/sync-azure-backup.zsh`：通过 SQLite `.backup` 生成一致性快照，再用 SSH/rsync 同步数据库和媒体。
+- `server.mjs`：Mac 后台网站检测到已安装同步脚本后，在启动 45 秒后执行一次，此后每小时执行一次；与平台自动同步使用同一个小时节奏。
+
+默认服务器地址、SSH 私钥路径、媒体目录和域名是本项目所有者的部署值。制作自己的版本时，应通过 `AZURE_BACKUP_REMOTE`、`AZURE_BACKUP_KEY_PATH`、`AZURE_BACKUP_MEDIA_DIR`、`AZURE_BACKUP_HOST` 与 `AZURE_BACKUP_IP` 覆盖，不要把私钥提交到 Git。
+
+安装本机每小时同步任务：
+
+```bash
+mkdir -p "$HOME/Library/Application Support/GameTimeVault"
+cp scripts/sync-azure-backup.zsh \
+  "$HOME/Library/Application Support/GameTimeVault/sync-azure-backup.zsh"
+chmod 700 "$HOME/Library/Application Support/GameTimeVault/sync-azure-backup.zsh"
+```
+
+随后重启 My Game Vault 后台服务即可。同步任务作为网站进程的子进程运行，因此沿用网站已经获得的“文稿”和外置硬盘读取权限，避免额外 LaunchAgent 被 macOS 隐私保护拒绝。需要暂时停用时，给网站进程设置 `AZURE_BACKUP_SYNC_ENABLED=0`，或移走 Application Support 中的同步脚本。
+
+首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
+
 ### PlayStation
 
 1. 在浏览器登录 [PlayStation 官网](https://www.playstation.com/)。

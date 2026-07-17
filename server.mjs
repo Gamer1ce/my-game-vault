@@ -4,7 +4,9 @@ import ExcelJS from "exceljs";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { spawn } from "node:child_process";
 import { Readable } from "node:stream";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { CredentialStore } from "./src/credential-store.mjs";
@@ -926,6 +928,11 @@ async function syncMetacritic() {
 }
 
 const automaticSyncIntervalMs = 60 * 60 * 1000;
+const defaultAzureBackupCommand = path.join(homedir(), "Library", "Application Support", "GameTimeVault", "sync-azure-backup.zsh");
+const azureBackupCommand = process.env.AZURE_BACKUP_SYNC_ENABLED === "0"
+  ? null
+  : String(process.env.AZURE_BACKUP_SYNC_COMMAND || (process.platform === "darwin" ? defaultAzureBackupCommand : "")).trim() || null;
+let azureBackupProcess = null;
 let nextAutomaticSyncAt = new Date(Date.now() + automaticSyncIntervalMs).toISOString();
 let lastAutomaticSyncAt = null;
 const gameSyncRunner = createSyncRunner([
@@ -1326,3 +1333,23 @@ function scheduleAutomaticSync() {
   automaticSync.unref();
 }
 scheduleAutomaticSync();
+
+function runAzureBackupSync(trigger) {
+  if (!azureBackupCommand || !existsSync(azureBackupCommand) || azureBackupProcess) return;
+  console.log(`Azure 备用站同步已启动（${trigger}）`);
+  const child = spawn(azureBackupCommand, [], { stdio: "inherit" });
+  azureBackupProcess = child;
+  child.once("error", (error) => console.error("Azure 备用站同步启动失败：", error.message));
+  child.once("close", (code, signal) => {
+    azureBackupProcess = null;
+    if (code === 0) console.log("Azure 备用站同步已完成");
+    else console.error(`Azure 备用站同步退出：${signal || code}`);
+  });
+}
+
+if (azureBackupCommand && existsSync(azureBackupCommand)) {
+  const startupAzureBackup = setTimeout(() => runAzureBackupSync("startup"), 45_000);
+  startupAzureBackup.unref();
+  const automaticAzureBackup = setInterval(() => runAzureBackupSync("automatic"), automaticSyncIntervalMs);
+  automaticAzureBackup.unref();
+}
