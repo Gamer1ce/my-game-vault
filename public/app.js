@@ -1,3 +1,5 @@
+import { estimatedBufferWait, recommendedBufferTarget, shouldFullyCacheVideo } from "./playback-buffer.js?v=20260717-2";
+
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 const HIGHLIGHT_INITIAL_COUNT = 4;
@@ -324,7 +326,7 @@ function renderHighlights() {
     const title = escapeHtml(item.title || item.filename || "精彩时刻");
     const date = item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "日期未知";
     const media = item.type === "video"
-      ? `${url ? `<video src="${escapeHtml(url)}" preload="metadata" muted playsinline aria-label="${title}"></video>` : `<span class="highlight-remote-preview" aria-hidden="true">REMOTE // ORIGINAL</span>`}<span class="highlight-play" aria-hidden="true">▶</span>`
+      ? `${url ? `<video src="${escapeHtml(url)}" preload="none" muted playsinline aria-label="${title}"></video>` : `<span class="highlight-remote-preview" aria-hidden="true">REMOTE // ORIGINAL</span>`}<span class="highlight-play" aria-hidden="true">▶</span>`
       : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
     const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">云端原画</em>` : "";
     return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${index}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
@@ -360,11 +362,181 @@ async function loadHighlights() {
 }
 
 let highlightPlaybackRequest = 0;
+let highlightBufferTimer = null;
+let highlightBufferAbort = null;
+let highlightPlaybackObjectUrl = null;
+
+function stopHighlightBufferTimer() {
+  if (highlightBufferTimer) clearInterval(highlightBufferTimer);
+  highlightBufferTimer = null;
+  if (highlightBufferAbort) highlightBufferAbort.abort();
+  highlightBufferAbort = null;
+  if (highlightPlaybackObjectUrl) URL.revokeObjectURL(highlightPlaybackObjectUrl);
+  highlightPlaybackObjectUrl = null;
+}
+
+function bufferedEndAtCurrentTime(video) {
+  for (let index = 0; index < video.buffered.length; index += 1) {
+    if (video.buffered.start(index) <= video.currentTime + 0.25 && video.buffered.end(index) >= video.currentTime) return video.buffered.end(index);
+  }
+  return 0;
+}
+
+function formatBufferClock(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds || 0)));
+  const minutes = Math.floor(value / 60);
+  const remainder = value % 60;
+  return minutes ? `${minutes}分${String(remainder).padStart(2, "0")}秒` : `${remainder}秒`;
+}
+
+function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request) {
+  const source = document.createElement("span");
+  source.className = `highlight-playback-source ${playback.source === "remote" ? "is-remote" : "is-local"}`;
+  source.textContent = playback.source === "remote" ? "云端原画" : "本机线路";
+
+  const panel = document.createElement("div");
+  panel.className = "highlight-buffer-panel";
+  panel.innerHTML = `<div class="highlight-buffer-copy"><strong>预缓存原画</strong><span>正在读取视频索引…</span></div><div class="highlight-buffer-track"><i></i></div><div class="highlight-buffer-actions"><button class="highlight-buffer-play" type="button" disabled>正在预缓存</button><button class="highlight-play-now" type="button">立即播放</button></div>`;
+  const status = panel.querySelector(".highlight-buffer-copy span");
+  const bar = panel.querySelector(".highlight-buffer-track i");
+  const bufferedPlay = panel.querySelector(".highlight-buffer-play");
+  const playNow = panel.querySelector(".highlight-play-now");
+  const sample = { startedAt: performance.now(), initialEnd: 0, rate: null, playing: false };
+  const fullCache = shouldFullyCacheVideo(item.size, playback.source);
+
+  const startPlayback = async () => {
+    try { await video.play(); } catch { status.textContent = "浏览器阻止了自动播放，请点击视频控制栏中的播放键。"; }
+  };
+
+  const update = () => {
+    if (request !== highlightPlaybackRequest || !video.isConnected) return;
+    const duration = Number(video.duration);
+    if (fullCache && highlightPlaybackObjectUrl) {
+      bar.style.width = "100%";
+      panel.style.setProperty("--buffer-target", "100%");
+      status.textContent = sample.playing
+        ? "原画已完整缓存，正在从浏览器本地播放。"
+        : `原画已完整缓存（${formatFileSize(item.size)}），播放不再受本机上行速度影响。`;
+      bufferedPlay.disabled = sample.playing;
+      bufferedPlay.textContent = sample.playing ? "正在播放" : "开始播放";
+      playNow.hidden = true;
+      return;
+    }
+    if (!Number.isFinite(duration) || duration <= 0) {
+      status.textContent = "正在读取视频索引…";
+      return;
+    }
+    const bufferedEnd = Math.min(duration, bufferedEndAtCurrentTime(video));
+    const elapsed = Math.max(0.001, (performance.now() - sample.startedAt) / 1000);
+    if (elapsed >= 2 && bufferedEnd > sample.initialEnd) sample.rate = (bufferedEnd - sample.initialEnd) / elapsed;
+    const target = recommendedBufferTarget(duration, sample.rate);
+    const ready = bufferedEnd + 0.5 >= target;
+    const wait = estimatedBufferWait(target, bufferedEnd, sample.rate);
+    bar.style.width = `${Math.min(100, (bufferedEnd / duration) * 100).toFixed(2)}%`;
+    panel.style.setProperty("--buffer-target", `${Math.min(100, (target / duration) * 100).toFixed(2)}%`);
+
+    if (sample.playing) {
+      status.textContent = `已缓存到 ${formatBufferClock(bufferedEnd)} / ${formatBufferClock(duration)}`;
+      bufferedPlay.disabled = true;
+      bufferedPlay.textContent = "正在播放";
+      playNow.hidden = true;
+    } else if (ready) {
+      status.textContent = `已缓存 ${formatBufferClock(bufferedEnd)}，达到当前线路的建议值。`;
+      bufferedPlay.disabled = false;
+      bufferedPlay.textContent = "开始流畅播放";
+    } else {
+      const estimate = wait === null ? "正在测量线路速度" : `预计还需约 ${formatBufferClock(wait)}`;
+      status.textContent = `已缓存 ${formatBufferClock(bufferedEnd)} / 建议 ${formatBufferClock(target)} · ${estimate}`;
+      bufferedPlay.disabled = true;
+      bufferedPlay.textContent = "正在预缓存";
+    }
+  };
+
+  bufferedPlay.addEventListener("click", startPlayback);
+  video.addEventListener("loadedmetadata", () => { sample.startedAt = performance.now(); sample.initialEnd = bufferedEndAtCurrentTime(video); update(); });
+  video.addEventListener("progress", update);
+  video.addEventListener("canplay", update);
+  video.addEventListener("waiting", () => { status.textContent = "当前缓存不足，正在继续读取原画…"; });
+  video.addEventListener("play", () => { sample.playing = true; update(); });
+  video.addEventListener("pause", () => { if (!video.ended) { sample.playing = false; update(); } });
+  video.addEventListener("error", () => { panel.classList.add("is-error"); status.textContent = "浏览器无法解码此文件，或媒体连接已经中断。"; });
+  viewer.replaceChildren(video, source, panel);
+  stopHighlightBufferTimer();
+  if (!fullCache) {
+    playNow.addEventListener("click", startPlayback);
+    video.src = playbackUrl;
+    highlightBufferTimer = setInterval(update, 750);
+    video.load();
+    update();
+    return;
+  }
+
+  panel.querySelector(".highlight-buffer-copy strong").textContent = "完整缓存原画";
+  status.textContent = `正在缓存 ${formatFileSize(item.size)}，完成后播放不会再消耗本机上行。`;
+  panel.style.setProperty("--buffer-target", "100%");
+  const controller = new AbortController();
+  highlightBufferAbort = controller;
+  const cacheOriginal = async () => {
+    try {
+      const response = await fetch(playbackUrl, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+      if (!response.ok) throw new Error(`媒体缓存失败（${response.status}）`);
+      const total = Math.max(1, Number(response.headers.get("content-length")) || Number(item.size) || 1);
+      let loaded = 0;
+      let blob;
+      if (response.body?.getReader) {
+        const reader = response.body.getReader();
+        const chunks = [];
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          loaded += value.byteLength;
+          const percent = Math.min(100, (loaded / total) * 100);
+          bar.style.width = `${percent.toFixed(2)}%`;
+          status.textContent = `已缓存 ${formatFileSize(loaded)} / ${formatFileSize(total)} · ${percent.toFixed(0)}%`;
+        }
+        blob = new Blob(chunks, { type: response.headers.get("content-type") || "video/mp4" });
+      } else {
+        blob = await response.blob();
+        loaded = blob.size;
+      }
+      if (request !== highlightPlaybackRequest || !video.isConnected) return;
+      highlightBufferAbort = null;
+      highlightPlaybackObjectUrl = URL.createObjectURL(blob);
+      video.src = highlightPlaybackObjectUrl;
+      video.load();
+      bar.style.width = "100%";
+      status.textContent = `原画已完整缓存（${formatFileSize(loaded)}），现在播放不会因本机上行不足而中断。`;
+      bufferedPlay.disabled = false;
+      bufferedPlay.textContent = "开始播放";
+      playNow.hidden = true;
+    } catch (error) {
+      if (error.name === "AbortError") return;
+      panel.classList.add("is-error");
+      status.textContent = `${error.message}，已切换为分段播放。`;
+      video.src = playbackUrl;
+      video.load();
+      highlightBufferTimer = setInterval(update, 750);
+      update();
+    }
+  };
+  playNow.addEventListener("click", () => {
+    if (highlightBufferAbort) highlightBufferAbort.abort();
+    highlightBufferAbort = null;
+    video.src = playbackUrl;
+    video.load();
+    highlightBufferTimer = setInterval(update, 750);
+    startPlayback();
+  }, { once: true });
+  cacheOriginal();
+}
+
 async function openHighlight(index) {
   const item = state.highlights[index];
   const url = safeHighlightUrl(item?.url);
   if (!item || (item.type !== "video" && !url)) return;
   const request = ++highlightPlaybackRequest;
+  stopHighlightBufferTimer();
   $("#highlightDialogTitle").textContent = item.title || item.filename || "精彩时刻";
   const viewer = $("#highlightViewer");
   if (item.type !== "video") {
@@ -380,14 +552,11 @@ async function openHighlight(index) {
     const playbackUrl = safePlaybackUrl(playback.url);
     if (!playbackUrl) throw new Error("播放地址不安全或不可用");
     const video = document.createElement("video");
-    video.src = playbackUrl;
     video.controls = true;
-    video.autoplay = true;
+    video.autoplay = false;
+    video.preload = "auto";
     video.playsInline = true;
-    const source = document.createElement("span");
-    source.className = `highlight-playback-source ${playback.source === "remote" ? "is-remote" : "is-local"}`;
-    source.textContent = playback.source === "remote" ? "云端原画" : "本机线路";
-    viewer.replaceChildren(video, source);
+    mountBufferedVideo(viewer, video, item, playback, playbackUrl, request);
   } catch (error) {
     if (request === highlightPlaybackRequest) viewer.innerHTML = `<div class="highlight-loading is-error"><strong>视频暂时无法播放</strong><span>${escapeHtml(error.message)}</span></div>`;
   }
@@ -477,7 +646,7 @@ $("#highlightCollapse").addEventListener("click", () => {
   renderHighlights();
   requestAnimationFrame(() => $("#highlights").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
 });
-$("#highlightDialog").addEventListener("close", () => { highlightPlaybackRequest += 1; const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
+$("#highlightDialog").addEventListener("close", () => { highlightPlaybackRequest += 1; stopHighlightBufferTimer(); const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
 $("#tabs").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#tabs .active").classList.remove("active"); button.classList.add("active"); state.platform = button.dataset.platform; render(); });
 $("#search").addEventListener("input", (event) => { state.query = event.target.value.trim().toLowerCase(); render(); });
 

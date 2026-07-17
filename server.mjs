@@ -290,7 +290,7 @@ function adminTransportAllowed(req) {
 
 function setSecurityHeaders(_req, res, next) {
   const remoteMediaSource = remoteMedia.allowedMediaSource();
-  const mediaSources = ["'self'", remoteMediaSource].filter(Boolean).join(" ");
+  const mediaSources = ["'self'", "blob:", remoteMediaSource].filter(Boolean).join(" ");
   res.set({
     "Content-Security-Policy": `default-src 'self'; img-src 'self' https: data:; media-src ${mediaSources}; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     "Referrer-Policy": "no-referrer",
