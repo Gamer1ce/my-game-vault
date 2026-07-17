@@ -50,8 +50,10 @@ test("dlink 自动附加 access_token 但调用者可避免输出完整地址", 
 
 test("Range 探测只接受 206 和有效 Content-Range", async () => {
   const result = await probeBaiduPlayback("https://d.example.com/video.mp4", {
+    userAgent: "pan.baidu.com",
     fetchImpl: async (_url, options) => {
       assert.equal(options.headers.Range, "bytes=0-65535");
+      assert.equal(options.headers["User-Agent"], "pan.baidu.com");
       return new Response(new Uint8Array([0]), {
         status: 206,
         headers: { "Content-Range": "bytes 0-65535/999999", "Content-Type": "video/mp4", "Content-Length": "65536" }

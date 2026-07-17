@@ -78,15 +78,22 @@ async function verify(config) {
   console.log(`测试文件：${selected.server_filename}（${(Number(selected.size || 0) / 1024 / 1024).toFixed(1)} MB）`);
   const download = await getBaiduDownloadLink(config, selected.fs_id);
   console.log("已取得临时 dlink（地址和令牌不会输出）");
-  const probe = await probeBaiduPlayback(download.url, { origin: config.playbackOrigin });
-  console.log(`Range 状态：HTTP ${probe.status || "失败"}${probe.contentRange ? ` · ${probe.contentRange}` : ""}`);
-  console.log(`最终节点：${probe.finalHost || "未知"} · 类型：${probe.contentType || "未知"}`);
-  if (probe.rangeSupported) {
-    console.log("结论：通过。该文件支持 206 分段读取，可继续验证手机浏览器直连播放。");
-  } else {
-    console.log(`结论：未通过。${probe.error || "下载节点没有按 Range 请求返回 206，暂不应接入正式播放器。"}`);
-    process.exitCode = 2;
+  const browserProbe = await probeBaiduPlayback(download.url, { origin: config.playbackOrigin });
+  console.log(`浏览器直连：HTTP ${browserProbe.status || "失败"}${browserProbe.contentRange ? ` · ${browserProbe.contentRange}` : ""}`);
+  console.log(`最终节点：${browserProbe.finalHost || "未知"} · 类型：${browserProbe.contentType || "未知"}`);
+  if (browserProbe.rangeSupported) {
+    console.log("结论：通过。该文件支持普通浏览器 206 分段读取，可继续验证手机公网播放。");
+    return;
   }
+
+  const apiProbe = await probeBaiduPlayback(download.url, { userAgent: "pan.baidu.com" });
+  console.log(`百度API下载：HTTP ${apiProbe.status || "失败"}${apiProbe.contentRange ? ` · ${apiProbe.contentRange}` : ""}`);
+  if (apiProbe.rangeSupported) {
+    console.log("结论：受限。百度API支持 206 分段下载，但普通浏览器被拒绝；只能由能设置百度 User-Agent 的后端代理播放。");
+  } else {
+    console.log(`结论：未通过。${apiProbe.error || browserProbe.error || "下载节点在两种请求模式下都没有返回 206。"}`);
+  }
+  process.exitCode = 2;
 }
 
 const config = baiduMediaConfiguration(process.env, savedToken());

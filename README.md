@@ -123,7 +123,7 @@ MP4/MOV 可以执行一次无损 Fast Start：`npm run media:faststart`。命令
 3. 执行 `source data/baidu-media.env && npm run media:baidu:authorize`，打开终端显示的官方授权地址并授权自己的账号。令牌只会保存到权限为 `600` 的 `data/baidu-media-token.json`。
 4. 执行 `source data/baidu-media.env && npm run media:baidu:verify`。工具会列出目录、选择一个视频、取得临时地址，并只请求前 64 KiB 检查是否返回 `206 Partial Content`。
 
-只有看到“结论：通过”时，才说明百度下载节点具备分段读取条件。它仍不代表手机公网播放一定可用：还需在手机流量下确认链接有效期、浏览器兼容性和百度当前应用权限。验证工具不会打印 `dlink`、Access Token 或 Secret Key。
+只有看到“结论：通过”时，才说明百度下载节点允许普通浏览器分段读取。若显示“结论：受限”，代表百度API使用指定 User-Agent 可以 `206` 下载，但 Safari、Chrome 等普通浏览器直连会被拒绝，只能经后端代理；代理若运行在本机，仍会受本机公网带宽限制。验证工具不会打印 `dlink`、Access Token 或 Secret Key。
 
 #### 把媒体库放在外置硬盘
 
