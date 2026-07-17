@@ -1,0 +1,6 @@
+{
+  "name": "game-vault-baidu-media-cn",
+  "entry": "./src/index.js",
+  "installCommand": "",
+  "buildCommand": ""
+}

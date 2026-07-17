@@ -140,6 +140,33 @@ security add-generic-password -U \
 
 随后执行 `npm run media:baidu:deploy-worker`。脚本会读取现有 DDNS 配置确定 Cloudflare Account ID，上传 Worker，把随机代理密钥保存为 Cloudflare Secret，并把 Worker 绑定到 `BAIDU_PROXY_HOSTNAME` 指定的自定义域名（本项目默认使用 `media.gamer1ce.top`）。自定义域名可以避开部分网络无法访问 `workers.dev` 的问题；Cloudflare 会自动创建所需 DNS 记录和证书。为避免 macOS 后台服务受“文稿”目录隐私限制，脚本还会把同一份 `600` 权限配置同步到 `~/Library/Application Support/GameTimeVault/baidu-media.env`。若账号还没有 `workers.dev` 子域名，需要先进入一次 Cloudflare Workers 控制台完成免费初始化。
 
+#### 中国访问优化：阿里云 ESA + Cloudflare 双线路
+
+部分中国网络会把 Cloudflare Worker 调度到欧洲节点，形成“中国访客 → 欧洲 → 百度 → 欧洲 → 中国访客”的绕行。项目因此支持第二条阿里云 ESA 函数线路；它与 Cloudflare 并行存在，不改动原线路，也不复制或转码视频。
+
+- 首次播放时，浏览器会同时对可用线路读取 256 KiB 的 Range 样本，选择实测速率更高的一条。
+- 选择结果只在当前浏览器会话缓存 10 分钟，网络变化后会重新测速。
+- 当前节点中断时，播放器会自动尝试另一条线路。
+- 两条线路使用独立的短期加密地址；百度 Access Token、真实 dlink 和代理密钥仍不会出现在前端或 GitHub。
+
+部署阿里云线路时：
+
+1. 在阿里云 ESA 创建站点，选择免费套餐和适合自己的加速区域；若域名没有中国内地备案，可先选择“全球（不包含中国内地）”。
+2. 在“边缘计算和 AI → 函数和 Pages”创建函数，入口使用 `aliyun-esa/baidu-media-proxy/src/index.js`，部署配置为同目录的 `esa.jsonc`。
+3. 为函数配置 `PROXY_KEY` 与 `ALLOWED_ORIGIN`。`PROXY_KEY` 可与本机 `BAIDU_PROXY_KEY` 相同，`ALLOWED_ORIGIN` 填公开网站 Origin，例如 `https://gamer1ce.top`。不要把这两个值写进源码或提交到 Git。
+4. 发布函数，绑定站点下的专用域名，例如 `media-cn.gamer1ce.top`，并确认 HTTPS 已生效。
+5. 在本机私有的 `data/baidu-media.env` 增加：
+
+```bash
+BAIDU_PROXY_URL_CN='https://media-cn.gamer1ce.top'
+# 留空时自动复用 BAIDU_PROXY_KEY；若云端用了独立密钥，则在这里填写同一密钥。
+BAIDU_PROXY_KEY_CN=''
+```
+
+6. 同步这份私有配置到后台服务使用的 `~/Library/Application Support/GameTimeVault/baidu-media.env`，然后重启网站。配置文件和密钥均在 Git 忽略范围。
+
+阿里云 ESA 免费函数模式目前为每账号每天 10 万次请求，超过后当天返回 503；因此 Cloudflare 线路始终保留为备用。正式长期使用前，应从实际手机网络分别测试两条线路，而不是只按服务商名称判断快慢。
+
 #### 把媒体库放在外置硬盘
 
 macOS 用户可以双击项目根目录的 `设置精彩时刻文件夹.command`，选择外置硬盘上的任意文件夹。程序只保存该文件夹的路径，图片和视频仍留在外置硬盘，不会复制到电脑或 GitHub。配置文件是本机私有的 `data/highlights-path.txt`，已经被 Git 忽略。

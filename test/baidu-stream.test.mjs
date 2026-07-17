@@ -10,6 +10,7 @@ import {
   sealBaiduPlaybackPayload
 } from "../src/baidu-stream.mjs";
 import { createBaiduProxyWorker } from "../cloudflare/baidu-media-proxy/src/index.js";
+import { createBaiduEsaProxy } from "../aliyun-esa/baidu-media-proxy/src/index.js";
 
 const key = Buffer.alloc(32, 7);
 const keyText = key.toString("base64url");
@@ -27,6 +28,18 @@ test("百度流媒体配置只接受HTTPS代理和32字节密钥", () => {
   const config = baiduStreamConfiguration({ BAIDU_PROXY_URL: "https://worker.example.com/", BAIDU_PROXY_KEY: keyText });
   assert.equal(config.enabled, true);
   assert.equal(config.proxyBaseUrl, "https://worker.example.com");
+});
+
+test("百度流媒体配置优先使用ESA并保留Cloudflare备用线路", () => {
+  const config = baiduStreamConfiguration({
+    BAIDU_PROXY_URL: "https://media.example.com",
+    BAIDU_PROXY_KEY: keyText,
+    BAIDU_PROXY_URL_CN: "https://media-cn.example.com"
+  });
+  assert.deepEqual(config.proxies.map(({ id, origin }) => ({ id, origin })), [
+    { id: "aliyun-esa", origin: "https://media-cn.example.com" },
+    { id: "cloudflare", origin: "https://media.example.com" }
+  ]);
 });
 
 test("百度目录生成精彩时刻并返回短期加密Worker地址", async () => {
@@ -52,6 +65,7 @@ test("百度目录生成精彩时刻并返回短期加密Worker地址", async ()
   const playback = await service.playback("42", "游戏_片段.mp4");
   assert.equal(playback.source, "baidu");
   assert.match(playback.url, /^https:\/\/worker\.example\.com\/v1\//);
+  assert.equal(playback.candidates.length, 1);
 });
 
 test("Worker验证令牌、转发Range和百度请求头并保持流式响应", async () => {
@@ -82,4 +96,22 @@ test("Worker拒绝过期令牌、非百度上游和错误来源", async () => {
   assert.equal((await worker.fetch(new Request(`https://worker.example.com/v1/${foreign}/a.mp4`), { PROXY_KEY: keyText })).status, 400);
   const valid = sealBaiduPlaybackPayload({ url: "https://d.pcs.baidu.com/file/a", exp: 6_000 }, key);
   assert.equal((await worker.fetch(new Request(`https://worker.example.com/v1/${valid}/a.mp4`, { headers: { Origin: "https://evil.example.com" } }), { PROXY_KEY: keyText, ALLOWED_ORIGIN: "https://games.example.com" })).status, 403);
+});
+
+test("阿里云ESA函数兼容同一播放令牌和Range流式转发", async () => {
+  const token = sealBaiduPlaybackPayload({ url: "https://d.pcs.baidu.com/file/clip.mp4", exp: 2_000, name: "clip.mp4" }, key, { iv: Buffer.alloc(12, 5) });
+  let observedRange;
+  const worker = createBaiduEsaProxy({
+    now: () => 1_000,
+    fetchImpl: async (_url, options) => {
+      observedRange = options.headers.get("Range");
+      return new Response(new Uint8Array([5, 6]), { status: 206, headers: { "Content-Range": "bytes 0-1/10" } });
+    }
+  });
+  const response = await worker.fetch(new Request(`https://media-cn.example.com/v1/${token}/clip.mp4`, {
+    headers: { Range: "bytes=0-1", Origin: "https://games.example.com" }
+  }), { PROXY_KEY: keyText, ALLOWED_ORIGIN: "https://games.example.com" });
+  assert.equal(response.status, 206);
+  assert.equal(observedRange, "bytes=0-1");
+  assert.equal(response.headers.get("X-Media-Edge"), "aliyun-esa");
 });

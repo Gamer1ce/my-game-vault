@@ -1,4 +1,10 @@
 import { estimatedBufferWait, recommendedBufferTarget, shouldFullyCacheVideo } from "./playback-buffer.js?v=20260717-2";
+import {
+  playbackCandidates,
+  readPreferredPlaybackRoute,
+  savePreferredPlaybackRoute,
+  selectPlaybackCandidate
+} from "./playback-route.js?v=20260717-1";
 
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -392,7 +398,9 @@ function formatBufferClock(seconds) {
 function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request) {
   const source = document.createElement("span");
   source.className = `highlight-playback-source ${playback.source === "remote" ? "is-remote" : "is-local"}`;
-  source.textContent = playback.source === "baidu" ? "百度云原画" : playback.source === "remote" ? "云端原画" : "本机线路";
+  source.textContent = playback.source === "baidu"
+    ? `百度云原画${playback.routeLabel ? ` · ${playback.routeLabel}` : ""}`
+    : playback.source === "remote" ? "云端原画" : "本机线路";
 
   const panel = document.createElement("div");
   panel.className = "highlight-buffer-panel";
@@ -403,6 +411,24 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   const playNow = panel.querySelector(".highlight-play-now");
   const sample = { startedAt: performance.now(), initialEnd: 0, rate: null, playing: false };
   const fullCache = shouldFullyCacheVideo(item.size, playback.source);
+  let activePlaybackUrl = playbackUrl;
+  const fallbackCandidates = Array.isArray(playback.fallbackCandidates) ? [...playback.fallbackCandidates] : [];
+
+  const updateRouteLabel = (candidate) => {
+    if (candidate?.label) source.textContent = `百度云原画 · ${candidate.label}`;
+  };
+
+  const nextFallback = () => {
+    while (fallbackCandidates.length) {
+      const candidate = fallbackCandidates.shift();
+      if (candidate?.url && candidate.url !== activePlaybackUrl) {
+        activePlaybackUrl = candidate.url;
+        updateRouteLabel(candidate);
+        return candidate;
+      }
+    }
+    return null;
+  };
 
   const startPlayback = async () => {
     try { await video.play(); } catch { status.textContent = "浏览器阻止了自动播放，请点击视频控制栏中的播放键。"; }
@@ -459,12 +485,23 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   video.addEventListener("waiting", () => { status.textContent = "当前缓存不足，正在继续读取原画…"; });
   video.addEventListener("play", () => { sample.playing = true; update(); });
   video.addEventListener("pause", () => { if (!video.ended) { sample.playing = false; update(); } });
-  video.addEventListener("error", () => { panel.classList.add("is-error"); status.textContent = "浏览器无法解码此文件，或媒体连接已经中断。"; });
+  video.addEventListener("error", () => {
+    const fallback = nextFallback();
+    if (fallback) {
+      panel.classList.remove("is-error");
+      status.textContent = `当前节点连接中断，正在切换到 ${fallback.label || "备用线路"}…`;
+      video.src = fallback.url;
+      video.load();
+      return;
+    }
+    panel.classList.add("is-error");
+    status.textContent = "浏览器无法解码此文件，或所有媒体线路均已中断。";
+  });
   viewer.replaceChildren(video, source, panel);
   stopHighlightBufferTimer();
   if (!fullCache) {
     playNow.addEventListener("click", startPlayback);
-    video.src = playbackUrl;
+    video.src = activePlaybackUrl;
     highlightBufferTimer = setInterval(update, 750);
     video.load();
     update();
@@ -476,9 +513,9 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   panel.style.setProperty("--buffer-target", "100%");
   const controller = new AbortController();
   highlightBufferAbort = controller;
-  const cacheOriginal = async () => {
+  const cacheOriginal = async (targetUrl = activePlaybackUrl) => {
     try {
-      const response = await fetch(playbackUrl, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
+      const response = await fetch(targetUrl, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
       if (!response.ok) throw new Error(`媒体缓存失败（${response.status}）`);
       const total = Math.max(1, Number(response.headers.get("content-length")) || Number(item.size) || 1);
       let loaded = 0;
@@ -512,9 +549,14 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
       playNow.hidden = true;
     } catch (error) {
       if (error.name === "AbortError") return;
+      const fallback = nextFallback();
+      if (fallback) {
+        status.textContent = `当前节点读取失败，正在切换到 ${fallback.label || "备用线路"}…`;
+        return cacheOriginal(fallback.url);
+      }
       panel.classList.add("is-error");
       status.textContent = `${error.message}，已切换为分段播放。`;
-      video.src = playbackUrl;
+      video.src = activePlaybackUrl;
       video.load();
       highlightBufferTimer = setInterval(update, 750);
       update();
@@ -523,7 +565,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   playNow.addEventListener("click", () => {
     if (highlightBufferAbort) highlightBufferAbort.abort();
     highlightBufferAbort = null;
-    video.src = playbackUrl;
+    video.src = activePlaybackUrl;
     video.load();
     highlightBufferTimer = setInterval(update, 750);
     startPlayback();
@@ -551,14 +593,30 @@ async function openHighlight(index) {
     if (item.playbackId) parameters.set("id", item.playbackId);
     const playback = await api(`/api/highlights/playback?${parameters}`);
     if (request !== highlightPlaybackRequest || !$("#highlightDialog").open) return;
-    const playbackUrl = safePlaybackUrl(playback.url);
+    const candidates = playbackCandidates(playback).map((candidate) => ({
+      ...candidate,
+      url: safePlaybackUrl(candidate.url)
+    })).filter((candidate) => candidate.url);
+    if (candidates.length > 1) {
+      viewer.innerHTML = `<div class="highlight-loading"><strong>正在选择更快的媒体节点</strong><span>同时检测国内与备用线路，只读取 256 KB 测速样本…</span></div>`;
+    }
+    const selected = await selectPlaybackCandidate(candidates, {
+      preferredId: readPreferredPlaybackRoute(sessionStorage)
+    });
+    if (selected) savePreferredPlaybackRoute(sessionStorage, selected);
+    const playbackUrl = selected?.url || safePlaybackUrl(playback.url);
     if (!playbackUrl) throw new Error("播放地址不安全或不可用");
     const video = document.createElement("video");
     video.controls = true;
     video.autoplay = false;
     video.preload = "auto";
     video.playsInline = true;
-    mountBufferedVideo(viewer, video, item, playback, playbackUrl, request);
+    const fallbackCandidates = candidates.filter((candidate) => candidate.id !== selected?.id);
+    mountBufferedVideo(viewer, video, item, {
+      ...playback,
+      routeLabel: selected?.label,
+      fallbackCandidates
+    }, playbackUrl, request);
   } catch (error) {
     if (request === highlightPlaybackRequest) viewer.innerHTML = `<div class="highlight-loading is-error"><strong>视频暂时无法播放</strong><span>${escapeHtml(error.message)}</span></div>`;
   }

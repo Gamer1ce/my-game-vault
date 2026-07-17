@@ -36,18 +36,37 @@ function proxyKey(value) {
 }
 
 export function baiduStreamConfiguration(environment = process.env) {
-  const proxyBaseUrl = text(environment.BAIDU_PROXY_URL).replace(/\/+$/, "") || null;
-  const proxyOrigin = httpsOrigin(proxyBaseUrl);
-  const key = proxyKey(environment.BAIDU_PROXY_KEY);
+  const definitions = [
+    {
+      id: "aliyun-esa",
+      label: "阿里云 ESA",
+      baseUrl: environment.BAIDU_PROXY_URL_CN,
+      key: environment.BAIDU_PROXY_KEY_CN || environment.BAIDU_PROXY_KEY
+    },
+    {
+      id: "cloudflare",
+      label: "Cloudflare",
+      baseUrl: environment.BAIDU_PROXY_URL,
+      key: environment.BAIDU_PROXY_KEY
+    }
+  ];
+  const proxies = definitions.map((definition) => {
+    const baseUrl = text(definition.baseUrl).replace(/\/+$/, "") || null;
+    const origin = httpsOrigin(baseUrl);
+    const key = proxyKey(definition.key);
+    return { ...definition, baseUrl: origin ? baseUrl : null, origin, key };
+  }).filter((proxy) => proxy.origin && proxy.key);
+  const primary = proxies[0] || null;
   const requestedTtl = Number(environment.BAIDU_PROXY_TOKEN_TTL_SECONDS || 600);
   const tokenTtlSeconds = Math.max(60, Math.min(900, Number.isFinite(requestedTtl) ? Math.round(requestedTtl) : 600));
   return {
-    proxyBaseUrl: proxyOrigin ? proxyBaseUrl : null,
-    proxyOrigin,
-    key,
+    proxies,
+    proxyBaseUrl: primary?.baseUrl || null,
+    proxyOrigin: primary?.origin || null,
+    key: primary?.key || null,
     tokenTtlSeconds,
     cacheTtlMs: 5 * 60_000,
-    enabled: Boolean(proxyOrigin && key)
+    enabled: proxies.length > 0
   };
 }
 
@@ -121,8 +140,8 @@ export function createBaiduStreamService({ dataDirectory, environment = process.
     isEnabled() {
       return stream.enabled;
     },
-    allowedMediaSource() {
-      return stream.enabled ? stream.proxyOrigin : null;
+    allowedMediaSources() {
+      return stream.proxies.map((proxy) => proxy.origin);
     },
     async highlights() {
       const items = await rawItems();
@@ -147,9 +166,17 @@ export function createBaiduStreamService({ dataDirectory, environment = process.
       const config = await authorizedConfig();
       const download = await getBaiduDownloadLink(config, item.fs_id, fetchImpl);
       const expiresAt = now() + stream.tokenTtlSeconds * 1000;
-      const token = sealBaiduPlaybackPayload({ url: download.url, exp: expiresAt, name: filename }, stream.key);
+      const candidates = stream.proxies.map((proxy) => {
+        const token = sealBaiduPlaybackPayload({ url: download.url, exp: expiresAt, name: filename }, proxy.key);
+        return {
+          id: proxy.id,
+          label: proxy.label,
+          url: `${proxy.baseUrl}/v1/${token}/${encodeURIComponent(filename)}`
+        };
+      });
       return {
-        url: `${stream.proxyBaseUrl}/v1/${token}/${encodeURIComponent(filename)}`,
+        url: candidates[0].url,
+        candidates,
         source: "baidu",
         expiresIn: stream.tokenTtlSeconds
       };

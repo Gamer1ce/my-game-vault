@@ -13,6 +13,7 @@ data/remote-media.json.tmp
 data/baidu-media.env
 data/baidu-media-token.json
 cloudflare/baidu-media-proxy/.dev.vars
+aliyun-esa/baidu-media-proxy/.env
 .wrangler/
 data/backups/
 data/highlights/
