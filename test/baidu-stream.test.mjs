@@ -30,6 +30,17 @@ test("百度流媒体配置只接受HTTPS代理和32字节密钥", () => {
   assert.equal(config.proxyBaseUrl, "https://worker.example.com");
 });
 
+test("百度流媒体可以通过私密开关停用并切回Mac本机线路", () => {
+  const config = baiduStreamConfiguration({
+    BAIDU_MEDIA_ENABLED: "0",
+    BAIDU_PROXY_URL: "https://worker.example.com",
+    BAIDU_PROXY_KEY: keyText
+  });
+  assert.equal(config.enabled, false);
+  assert.deepEqual(config.proxies, []);
+  assert.equal(config.proxyBaseUrl, null);
+});
+
 test("百度流媒体配置优先使用ESA并保留Cloudflare备用线路", () => {
   const config = baiduStreamConfiguration({
     BAIDU_PROXY_URL: "https://media.example.com",

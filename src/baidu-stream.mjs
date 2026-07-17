@@ -35,7 +35,14 @@ function proxyKey(value) {
   }
 }
 
+function enabledFlag(value, fallback = true) {
+  const normalized = text(value).toLowerCase();
+  if (!normalized) return fallback;
+  return !["0", "false", "off", "no", "disabled"].includes(normalized);
+}
+
 export function baiduStreamConfiguration(environment = process.env) {
+  const mediaEnabled = enabledFlag(environment.BAIDU_MEDIA_ENABLED);
   const definitions = [
     {
       id: "aliyun-esa",
@@ -56,17 +63,18 @@ export function baiduStreamConfiguration(environment = process.env) {
     const key = proxyKey(definition.key);
     return { ...definition, baseUrl: origin ? baseUrl : null, origin, key };
   }).filter((proxy) => proxy.origin && proxy.key);
-  const primary = proxies[0] || null;
+  const activeProxies = mediaEnabled ? proxies : [];
+  const primary = activeProxies[0] || null;
   const requestedTtl = Number(environment.BAIDU_PROXY_TOKEN_TTL_SECONDS || 600);
   const tokenTtlSeconds = Math.max(60, Math.min(900, Number.isFinite(requestedTtl) ? Math.round(requestedTtl) : 600));
   return {
-    proxies,
+    proxies: activeProxies,
     proxyBaseUrl: primary?.baseUrl || null,
     proxyOrigin: primary?.origin || null,
     key: primary?.key || null,
     tokenTtlSeconds,
     cacheTtlMs: 5 * 60_000,
-    enabled: proxies.length > 0
+    enabled: activeProxies.length > 0
   };
 }
 

@@ -108,6 +108,8 @@ data/highlights/
 
 网站通过只读接口 `GET /api/highlights` 返回媒体清单，通过 `/media/highlights/文件名` 提供图片和支持断点播放的视频。它没有网页上传、覆盖或删除接口；访客只能查看。要移除内容，直接在本机删除对应文件并刷新页面。
 
+若已经配置过百度网盘或云端代理，但希望临时切回原来的 Mac 本机线路，可在私密配置 `data/baidu-media.env` 以及后台服务使用的 `~/Library/Application Support/GameTimeVault/baidu-media.env` 中加入 `BAIDU_MEDIA_ENABLED='0'`，再重启网站。此时百度目录不会出现在网页中，外置硬盘中的媒体仍由 `/media/highlights/文件名` 通过 Mac 原样提供，并继续支持 HTTP Range 断点播放。将开关改回 `1` 后重启即可恢复云端线路，密钥和授权信息无需删除或重新申请。
+
 视频卡片使用 `preload="none"`，不会在首页同时抢占多条视频流。点击本机线路中不超过 256 MiB 的视频后，网页会主动完整下载原画并显示真实字节进度，完成后再从浏览器本地 Blob 播放；更大的文件则测量缓存增长速度，根据原画码率与当前线路计算建议缓存点。两种模式都保留“立即播放”。移动浏览器可能限制超大文件的缓存量，因此数GB原画仍建议使用对象存储或完整下载。
 
 MP4/MOV 可以执行一次无损 Fast Start：`npm run media:faststart`。命令只通过 FFmpeg `-c copy` 重排容器索引，不重新编码视频或音频；已经优化的文件会跳过，输出通过结构校验后才原位替换。首次运行前可用 `node scripts/optimize-highlight-mp4.mjs --dry-run` 查看需要处理的文件。
