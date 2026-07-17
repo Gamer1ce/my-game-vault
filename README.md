@@ -34,6 +34,12 @@ npm start
 
 打开 <http://localhost:4173>。首次启动会自动创建 `data/games.db` 和本机凭据文件。
 
+### 通过家庭 IPv6 发布到公网
+
+需要把网站运行在 Mac mini 或家庭服务器上，并使用电信公网 IPv6、Cloudflare、DDNS 和 macOS 开机自启时，参见完整教程：
+
+- [从零把 Mac mini 网站通过 IPv6 发布到公网](docs/ipv6-home-site-cloudflare-ddns.md)
+
 ### macOS 一键启动
 
 双击项目根目录中的 `启动游戏时光库.command` 即可。它会在首次运行时安装依赖、启动服务并自动打开浏览器；终端窗口保持打开时，网站会继续运行和自动同步。
