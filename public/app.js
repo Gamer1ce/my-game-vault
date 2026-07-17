@@ -328,7 +328,7 @@ function renderHighlights() {
     const media = item.type === "video"
       ? `${url ? `<video src="${escapeHtml(url)}" preload="none" muted playsinline aria-label="${title}"></video>` : `<span class="highlight-remote-preview" aria-hidden="true">REMOTE // ORIGINAL</span>`}<span class="highlight-play" aria-hidden="true">▶</span>`
       : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
-    const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">云端原画</em>` : "";
+    const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">${item.storageSource === "baidu" ? "百度云原画" : "云端原画"}</em>` : "";
     return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${index}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
   }).join("");
   const remaining = Math.max(0, state.highlights.length - visibleCount);
@@ -392,7 +392,7 @@ function formatBufferClock(seconds) {
 function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request) {
   const source = document.createElement("span");
   source.className = `highlight-playback-source ${playback.source === "remote" ? "is-remote" : "is-local"}`;
-  source.textContent = playback.source === "remote" ? "云端原画" : "本机线路";
+  source.textContent = playback.source === "baidu" ? "百度云原画" : playback.source === "remote" ? "云端原画" : "本机线路";
 
   const panel = document.createElement("div");
   panel.className = "highlight-buffer-panel";
@@ -547,7 +547,9 @@ async function openHighlight(index) {
   viewer.innerHTML = `<div class="highlight-loading"><strong>正在连接媒体节点</strong><span>校验原画播放地址…</span></div>`;
   $("#highlightDialog").showModal();
   try {
-    const playback = await api(`/api/highlights/playback?filename=${encodeURIComponent(item.filename)}`);
+    const parameters = new URLSearchParams({ filename: item.filename, source: item.storageSource || "default" });
+    if (item.playbackId) parameters.set("id", item.playbackId);
+    const playback = await api(`/api/highlights/playback?${parameters}`);
     if (request !== highlightPlaybackRequest || !$("#highlightDialog").open) return;
     const playbackUrl = safePlaybackUrl(playback.url);
     if (!playbackUrl) throw new Error("播放地址不安全或不可用");

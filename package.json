@@ -9,6 +9,7 @@
     "media:sync": "node scripts/sync-remote-media.mjs",
     "media:baidu:authorize": "node --env-file-if-exists=data/baidu-media.env scripts/verify-baidu-media.mjs authorize",
     "media:baidu:verify": "node --env-file-if-exists=data/baidu-media.env scripts/verify-baidu-media.mjs verify",
+    "media:baidu:deploy-worker": "node --env-file-if-exists=data/baidu-media.env scripts/deploy-baidu-worker.mjs",
     "media:faststart": "node scripts/optimize-highlight-mp4.mjs",
     "test": "node --test"
   },

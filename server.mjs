@@ -20,6 +20,7 @@ import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./sr
 import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
 import { createSyncRunner } from "./src/sync-runner.mjs";
 import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
+import { createBaiduStreamService } from "./src/baidu-stream.mjs";
 import { configureOutboundProxy } from "./src/network.mjs";
 import {
   calibratedFinalMinutes,
@@ -38,6 +39,7 @@ mkdirSync(defaultHighlightsDir, { recursive: true });
 const db = new DatabaseSync(path.join(dataDir, "games.db"));
 const credentials = new CredentialStore(dataDir);
 const remoteMedia = createRemoteMediaService({ dataDirectory: dataDir });
+const baiduStream = createBaiduStreamService({ dataDirectory: dataDir });
 const playstation = createPlaystationConnector();
 const xbox = createXboxConnector();
 const nintendo = createNintendoConnector();
@@ -290,7 +292,8 @@ function adminTransportAllowed(req) {
 
 function setSecurityHeaders(_req, res, next) {
   const remoteMediaSource = remoteMedia.allowedMediaSource();
-  const mediaSources = ["'self'", "blob:", remoteMediaSource].filter(Boolean).join(" ");
+  const baiduMediaSource = baiduStream.allowedMediaSource();
+  const mediaSources = ["'self'", "blob:", remoteMediaSource, baiduMediaSource].filter(Boolean).join(" ");
   res.set({
     "Content-Security-Policy": `default-src 'self'; img-src 'self' https: data:; media-src ${mediaSources}; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     "Referrer-Policy": "no-referrer",
@@ -957,28 +960,47 @@ app.post("/api/sync/all", async (_req, res, next) => {
   }
 });
 
-app.get("/api/highlights", (_req, res) => {
+app.get("/api/highlights", async (_req, res) => {
   const storage = resolveHighlightsDirectory(dataDir);
   let available = false;
   try { available = statSync(storage.directory).isDirectory(); } catch { available = false; }
   const localHighlights = available ? listHighlights(storage.directory) : [];
   let manifest = { files: {} };
   try { manifest = remoteMedia.manifest(); } catch (error) { console.error(error.message); }
-  const highlights = mergeRemoteHighlights(localHighlights, manifest, { remoteEnabled: remoteMedia.isEnabled() });
+  let baiduHighlights = [];
+  try { baiduHighlights = await baiduStream.highlights(); } catch (error) { console.error(`百度媒体目录读取失败：${error.message || error}`); }
+  const highlights = [...mergeRemoteHighlights(localHighlights, manifest, { remoteEnabled: remoteMedia.isEnabled() }), ...baiduHighlights]
+    .sort((a, b) => Number(a.size || 0) - Number(b.size || 0)
+      || String(b.modifiedAt || "").localeCompare(String(a.modifiedAt || ""))
+      || a.filename.localeCompare(b.filename, "zh-CN"));
   res.json({
     highlights,
     total: highlights.length,
     available,
     customDirectory: storage.custom,
     remoteEnabled: remoteMedia.isEnabled(),
-    remoteCount: Object.keys(manifest.files || {}).length
+    remoteCount: Object.keys(manifest.files || {}).length,
+    baiduEnabled: baiduStream.isEnabled(),
+    baiduCount: baiduHighlights.length
   });
 });
 
 app.get("/api/highlights/playback", async (req, res) => {
   const filename = String(req.query.filename || "");
+  const storageSource = String(req.query.source || "default");
   if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) {
     return res.status(400).json({ error: "媒体文件名无效" });
+  }
+
+  if (storageSource === "baidu") {
+    try {
+      const playback = await baiduStream.playback(String(req.query.id || ""), filename);
+      if (playback) return res.json(playback);
+      return res.status(404).json({ error: "百度网盘视频不存在或目录清单已更新" });
+    } catch (error) {
+      console.error(`百度网盘播放链接生成失败：${error.message || error}`);
+      return res.status(502).json({ error: "百度网盘暂时无法生成播放地址" });
+    }
   }
 
   try {

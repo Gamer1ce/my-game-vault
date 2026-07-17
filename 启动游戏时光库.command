@@ -10,6 +10,11 @@ if [[ -f data/remote-media.env ]]; then
   source data/remote-media.env
   set +a
 fi
+if [[ -f data/baidu-media.env ]]; then
+  set -a
+  source data/baidu-media.env
+  set +a
+fi
 
 if [[ -f data/highlights-path.txt ]]; then
   HIGHLIGHTS_PATH="$(head -n 1 data/highlights-path.txt)"

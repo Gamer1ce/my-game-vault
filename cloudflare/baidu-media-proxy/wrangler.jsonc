@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "game-vault-baidu-media",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-17",
+  "workers_dev": true,
+  "preview_urls": false
+}

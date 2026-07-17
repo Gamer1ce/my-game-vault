@@ -11,5 +11,15 @@ if [[ -f data/remote-media.env ]]; then
   source data/remote-media.env
   set +a
 fi
+RUNTIME_BAIDU_ENV="$HOME/Library/Application Support/GameTimeVault/baidu-media.env"
+if [[ -f "$RUNTIME_BAIDU_ENV" ]]; then
+  set -a
+  source "$RUNTIME_BAIDU_ENV"
+  set +a
+elif [[ -f data/baidu-media.env ]]; then
+  set -a
+  source data/baidu-media.env
+  set +a
+fi
 
 exec /opt/homebrew/bin/node server.mjs

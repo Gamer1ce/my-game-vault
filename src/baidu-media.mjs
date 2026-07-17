@@ -67,6 +67,18 @@ export async function exchangeAuthorizationCode(config, code, fetchImpl = fetch)
   return readJson(response, "交换百度授权令牌");
 }
 
+export async function refreshBaiduAccessToken(config, refreshToken, fetchImpl = fetch) {
+  if (!config.clientId || !config.clientSecret) throw new Error("缺少 BAIDU_CLIENT_ID 或 BAIDU_CLIENT_SECRET");
+  if (!clean(refreshToken)) throw new Error("缺少百度 refresh_token");
+  const url = new URL(TOKEN_ENDPOINT);
+  url.searchParams.set("grant_type", "refresh_token");
+  url.searchParams.set("refresh_token", clean(refreshToken));
+  url.searchParams.set("client_id", config.clientId);
+  url.searchParams.set("client_secret", config.clientSecret);
+  const response = await fetchImpl(url, { method: "POST", headers: { Accept: "application/json" } });
+  return readJson(response, "刷新百度授权令牌");
+}
+
 export async function listBaiduDirectory(config, fetchImpl = fetch) {
   if (!config.accessToken) throw new Error("缺少百度 access_token，请先完成授权");
   const files = [];

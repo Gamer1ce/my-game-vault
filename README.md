@@ -125,6 +125,21 @@ MP4/MOV 可以执行一次无损 Fast Start：`npm run media:faststart`。命令
 
 只有看到“结论：通过”时，才说明百度下载节点允许普通浏览器分段读取。若显示“结论：受限”，代表百度API使用指定 User-Agent 可以 `206` 下载，但 Safari、Chrome 等普通浏览器直连会被拒绝，只能经后端代理；代理若运行在本机，仍会受本机公网带宽限制。验证工具不会打印 `dlink`、Access Token 或 Secret Key。
 
+#### 用 Cloudflare Worker 流式播放百度网盘视频
+
+网站支持把百度视频的 Range 片段经 Cloudflare Worker 直接流向浏览器，视频不写入 Mac 或 Worker 存储，也不重新编码。网站后端只生成 10 分钟有效的 AES-256-GCM 加密播放令牌；Worker 解密后校验过期时间、访问来源及百度域名白名单，再携带百度要求的 User-Agent 转发 Range 请求。百度 Access Token、dlink 和代理密钥都不会发送到前端或上传 GitHub。
+
+部署前，在 Cloudflare 创建一枚独立 API Token，只授予目标账号 `Workers Scripts: Edit` 权限。macOS 用户可以双击 `保存Cloudflare Workers令牌.command`，以隐藏输入方式保存到钥匙串；也可以使用命令：
+
+```bash
+security add-generic-password -U \
+  -a 'gamer1ce.top' \
+  -s 'com.gamer1ce.game-time-vault.cloudflare-workers' \
+  -w '在此粘贴Workers Token'
+```
+
+随后执行 `npm run media:baidu:deploy-worker`。脚本会读取现有 DDNS 配置确定 Cloudflare Account ID，上传 Worker，把随机代理密钥保存为 Cloudflare Secret，并把 Worker 绑定到 `BAIDU_PROXY_HOSTNAME` 指定的自定义域名（本项目默认使用 `media.gamer1ce.top`）。自定义域名可以避开部分网络无法访问 `workers.dev` 的问题；Cloudflare 会自动创建所需 DNS 记录和证书。为避免 macOS 后台服务受“文稿”目录隐私限制，脚本还会把同一份 `600` 权限配置同步到 `~/Library/Application Support/GameTimeVault/baidu-media.env`。若账号还没有 `workers.dev` 子域名，需要先进入一次 Cloudflare Workers 控制台完成免费初始化。
+
 #### 把媒体库放在外置硬盘
 
 macOS 用户可以双击项目根目录的 `设置精彩时刻文件夹.command`，选择外置硬盘上的任意文件夹。程序只保存该文件夹的路径，图片和视频仍留在外置硬盘，不会复制到电脑或 GitHub。配置文件是本机私有的 `data/highlights-path.txt`，已经被 Git 忽略。
