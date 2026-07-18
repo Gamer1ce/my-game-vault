@@ -6,6 +6,7 @@ import {
   selectPlaybackCandidate
 } from "./playback-route.js?v=20260717-1";
 import { filteredHighlightEntries, highlightCounts, normalizeHighlightType } from "./highlight-gallery.js?v=20260718-1";
+import { createHeroSequence } from "./hero-sequence.js?v=20260718-1";
 
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -18,6 +19,32 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => 
 const formatTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60).toLocaleString()}<span>小时 ${minutes % 60 ? `${minutes % 60} 分` : ""}</span>`;
 const formatPlainTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时${minutes % 60 ? ` ${minutes % 60} 分钟` : ""}`;
 const api = async (url, options = {}) => { const response = await fetch(url, { credentials:"same-origin", ...options }); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "请求失败"); } return response.status === 204 ? null : response.json(); };
+
+const heroSequenceTitle = $("#heroSequenceTitle");
+const heroSequenceTrigger = $("#heroSequenceTrigger");
+const heroSequenceText = $("#heroSequenceText");
+
+function pulseHeroSequence() {
+  heroSequenceTitle.classList.remove("is-glitching");
+  void heroSequenceTitle.offsetWidth;
+  heroSequenceTitle.classList.add("is-glitching");
+  window.setTimeout(() => heroSequenceTitle.classList.remove("is-glitching"), 680);
+}
+
+const heroSequence = createHeroSequence({
+  glitch: pulseHeroSequence,
+  transition({ text, state: sequenceState }) {
+    heroSequenceText.textContent = text;
+    heroSequenceText.dataset.text = text;
+    heroSequenceTitle.dataset.state = sequenceState;
+    heroSequenceTrigger.setAttribute("aria-label", text);
+  }
+});
+
+heroSequenceTrigger.addEventListener("click", () => {
+  if (!heroSequence.start()) return;
+  heroSequenceTrigger.disabled = true;
+});
 
 function renderSecurity() {
   $("#importButton").classList.toggle("hidden", !state.security.canManage);

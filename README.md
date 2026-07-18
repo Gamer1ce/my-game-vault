@@ -1,14 +1,14 @@
-# Gamer1ce // 游迹
+# 中枢圣殿 // SANCTUARY NEXUS
 
 > 搭建属于自己的全平台游戏记录网站。
 
-<img src="public/icons/app-icon-192.png" width="128" height="128" alt="游迹自定义主屏幕图标">
+<img src="public/icons/app-icon-192-v2.png" width="128" height="128" alt="中枢圣殿自定义主屏幕图标">
 
-“游迹”是 Gamer1ce 的本地优先游戏档案。它把 Xbox、PlayStation、Nintendo 与 Steam 的累计时长、成就、海报、最后游玩日期和 MC 评分归一到同一个赛博朋克风格页面，同时明确区分“官方确切数据”和“无法从接口还原的数据”。
+“中枢圣殿”是 Gamer1ce 的本地优先游戏档案。它把 Xbox、PlayStation、Nintendo 与 Steam 的累计时长、成就、海报、最后游玩日期和 MC 评分归一到同一个赛博朋克风格页面，同时明确区分“官方确切数据”和“无法从接口还原的数据”。
 
 ## 界面预览
 
-![游迹总览](docs/screenshots/overview.jpg)
+![中枢圣殿总览](docs/screenshots/overview.jpg)
 
 ![游戏活动日历](docs/screenshots/calendar.jpg)
 
@@ -17,6 +17,7 @@
 ## 为什么值得一试
 
 - **一站式游戏履历**：统一展示四个平台，自动过滤 0 分钟记录并汇总总时长、游戏数、成就和全成就游戏。
+- **交互式接入仪式**：首屏从 `PRESS START` 启动，依次进入“正在入侵”“入侵成功”与“欢迎接入万界圣所”，每次状态切换都伴随短促信号故障，最终状态持续发出周期性故障脉冲。
 - **不是普通列表**：横版海报、官方平台图标，以及从《赛博朋克 2077》官网提炼的高对比黄色、切角面板、窄体技术字和间歇式信号故障；点击海报可进入对应官方商店。
 - **可解释的游戏日历**：根据两次同步间的累计时长差生成每日分钟数；只有最后游玩日期、没有分钟数时会明确标为“当日时长未知”，不会伪造历史。
 - **近两周时长脉冲**：连续展示最近 14 天的分平台堆叠时长，确切记录与同步检测值使用同一套日历口径，并用“≈”标出包含累计差值的日期。
@@ -243,7 +244,7 @@ cp scripts/sync-azure-backup.zsh \
 chmod 700 "$HOME/Library/Application Support/GameTimeVault/sync-azure-backup.zsh"
 ```
 
-随后重启“游迹”后台服务即可。同步任务作为网站进程的子进程运行，因此沿用网站已经获得的“文稿”和外置硬盘读取权限，避免额外 LaunchAgent 被 macOS 隐私保护拒绝。需要暂时停用时，给网站进程设置 `AZURE_BACKUP_SYNC_ENABLED=0`，或移走 Application Support 中的同步脚本。
+随后重启“中枢圣殿”后台服务即可。同步任务作为网站进程的子进程运行，因此沿用网站已经获得的“文稿”和外置硬盘读取权限，避免额外 LaunchAgent 被 macOS 隐私保护拒绝。需要暂时停用时，给网站进程设置 `AZURE_BACKUP_SYNC_ENABLED=0`，或移走 Application Support 中的同步脚本。
 
 Mac 端网站服务会在启动约 45 秒后执行一次 Azure 同步，此后每 60 分钟执行一次；若上一次媒体传输尚未结束，新一轮会自动跳过。首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。媒体目录采用镜像模式：新增和修改会上传，删除或重命名会在下一次成功同步结束时清理 Azure 上的旧文件；移动硬盘未挂载时不会执行媒体同步或远端删除。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
 

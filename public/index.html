@@ -6,21 +6,21 @@
   <meta name="theme-color" content="#fcee0a">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="游迹">
-  <title>Gamer1ce // 游迹</title>
-  <link rel="manifest" href="/site.webmanifest?v=20260718-1">
+  <meta name="apple-mobile-web-app-title" content="中枢圣殿">
+  <title>中枢圣殿 // SANCTUARY NEXUS</title>
+  <link rel="manifest" href="/site.webmanifest?v=20260718-2">
   <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-v2.png">
   <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/icons/apple-touch-icon-v2.png">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32-v2.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260717-1">
+  <link rel="stylesheet" href="/styles.css?v=20260718-4">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
   <header class="hero">
-    <nav><span class="brand"><b>GAMER1CE</b> // 游迹</span><div class="nav-actions"><a class="ghost nav-highlight" href="#highlights">精彩时刻</a><button class="ghost hidden" id="importButton">导入官方数据</button><button class="ghost hidden" id="adminButton">管理员登录</button></div></nav>
+    <nav><span class="brand" aria-label="SANCTUARY NEXUS，中枢圣殿"><b>SANCTUARY//NEXUS</b><small>中枢圣殿</small></span><div class="nav-actions"><a class="ghost nav-highlight" href="#highlights">精彩时刻</a><button class="ghost hidden" id="importButton">导入官方数据</button><button class="ghost hidden" id="adminButton">管理员登录</button></div></nav>
     <div class="guest-actions" aria-label="留言与点赞">
       <form id="guestbookForm" autocomplete="off">
         <input name="message" maxlength="72" minlength="2" aria-label="留言内容" placeholder="云中谁寄锦书来？" required>
@@ -34,7 +34,11 @@
     <div class="danmaku-stage" id="danmakuStage" aria-label="留言弹幕"></div>
     <div class="hero-copy">
       <span class="hero-kicker">/// Gamer1ce // CROSS-PLATFORM ARCHIVE</span>
-      <h1 data-text="我的游戏生涯" aria-label="我的游戏生涯">我的游戏生涯</h1>
+      <h1 class="hero-sequence-title" id="heroSequenceTitle" data-state="idle" aria-live="polite">
+        <button class="hero-sequence-trigger" id="heroSequenceTrigger" type="button" aria-label="启动接入序列">
+          <span class="hero-sequence-text" id="heroSequenceText" data-text="PRESS START">PRESS START</span>
+        </button>
+      </h1>
       <p>时间在现实中向前，也在无数个世界里留下分支。这里保存我曾抵达的地方、赢下的时刻，以及那些尚未结束的远征。</p>
       <div class="hero-actions">
         <a class="primary hero-action" href="#connections">查看平台档案</a>
@@ -171,6 +175,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=20260718-1"></script>
+  <script type="module" src="/app.js?v=20260718-2"></script>
 </body>
 </html>
