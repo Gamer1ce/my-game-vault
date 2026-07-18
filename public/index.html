@@ -71,7 +71,13 @@
     <section class="highlights-section" id="highlights">
       <div class="section-heading">
         <div><h2 data-text="精彩时刻" aria-label="精彩时刻">精彩时刻</h2><p class="section-note">“后之览者，亦将有感于斯文。”<cite>——王羲之《兰亭集序》</cite></p></div>
-        <span class="highlight-count" id="highlightCount">MEDIA // 00</span>
+        <div class="highlight-heading-tools">
+          <div class="highlight-switch" id="highlightFilters" role="group" aria-label="精彩时刻媒体类型">
+            <button class="highlight-filter active" type="button" data-highlight-filter="video" aria-pressed="true"><span>视频</span><strong id="highlightVideoCount">0</strong></button>
+            <button class="highlight-filter" type="button" data-highlight-filter="image" aria-pressed="false"><span>截图</span><strong id="highlightImageCount">0</strong></button>
+          </div>
+          <span class="highlight-count" id="highlightCount">VIDEO // 00</span>
+        </div>
       </div>
       <div class="highlight-grid" id="highlightGrid"></div>
       <div class="highlight-more-wrap">
@@ -165,6 +171,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=20260717-4"></script>
+  <script type="module" src="/app.js?v=20260718-1"></script>
 </body>
 </html>

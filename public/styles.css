@@ -436,6 +436,36 @@ main {
   border-bottom: 1px solid var(--line);
   scroll-margin-top: 20px;
 }
+.highlight-heading-tools { display: flex; align-items: center; gap: 12px; }
+.highlight-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(88px, 1fr));
+  overflow: hidden;
+  border: 1px solid #59616c;
+  background: #080a0d;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+}
+.highlight-filter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 0;
+  border-right: 1px solid #59616c;
+  color: var(--muted);
+  background: transparent;
+  font-family: "Rajdhani", "Noto Sans SC", sans-serif;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: .08em;
+}
+.highlight-filter:last-child { border-right: 0; }
+.highlight-filter strong { min-width: 20px; font-size: 11px; text-align: right; }
+.highlight-filter:hover, .highlight-filter:focus-visible { color: var(--ink); background: #15191e; }
+.highlight-filter.active { color: #090b0e; background: var(--cyan); }
+.highlight-filter[data-highlight-filter="image"].active { background: var(--yellow); }
 .highlight-count {
   padding: 7px 10px;
   border: 1px solid var(--cyan);
@@ -1054,6 +1084,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .friend-links { width: min(590px, 100%); grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; }
   .stats { grid-template-columns: 1fr 1fr; margin-top: 0; }
   .section-heading { align-items: start; flex-direction: column; }
+  .highlight-heading-tools { width: 100%; }
+  .highlight-switch { flex: 1; }
   .recent-total { width: 100%; text-align: left; }
   .calendar-controls { width: 100%; justify-content: space-between; }
   .calendar-day, .calendar-spacer { min-height: 66px; }
@@ -1078,6 +1110,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .recent-activity { margin-top: 52px; padding-top: 26px; }
   .recent-chart { min-width: 790px; }
   .highlights-section { margin-top: 52px; padding-top: 26px; }
+  .highlight-heading-tools { align-items: stretch; flex-direction: column; }
+  .highlight-count { align-self: flex-start; }
   .highlight-grid { grid-template-columns: 1fr; }
   .highlight-dialog-body { padding: 14px; }
   .highlight-viewer { min-height: 160px; }

@@ -5,12 +5,13 @@ import {
   savePreferredPlaybackRoute,
   selectPlaybackCandidate
 } from "./playback-route.js?v=20260717-1";
+import { filteredHighlightEntries, highlightCounts, normalizeHighlightType } from "./highlight-gallery.js?v=20260718-1";
 
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 const HIGHLIGHT_INITIAL_COUNT = 4;
 const HIGHLIGHT_PAGE_SIZE = 8;
-const state = { games: [], highlights: [], visibleHighlights: HIGHLIGHT_INITIAL_COUNT, highlightStorage: { available: true, customDirectory: false }, recentActivity: { days: [], totalMinutes: 0 }, guestbook: { messages: [], likes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const state = { games: [], highlights: [], highlightFilter: "video", visibleHighlights: { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT }, highlightStorage: { available: true, customDirectory: false }, recentActivity: { days: [], totalMinutes: 0 }, guestbook: { messages: [], likes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -324,9 +325,19 @@ function formatFileSize(bytes) {
 }
 
 function renderHighlights() {
-  $("#highlightCount").textContent = `MEDIA // ${String(state.highlights.length).padStart(2, "0")}`;
-  const visibleCount = Math.min(state.visibleHighlights, state.highlights.length);
-  $("#highlightGrid").innerHTML = state.highlights.slice(0, visibleCount).map((item, index) => {
+  const activeType = normalizeHighlightType(state.highlightFilter);
+  const counts = highlightCounts(state.highlights);
+  const entries = filteredHighlightEntries(state.highlights, activeType);
+  const visibleCount = Math.min(state.visibleHighlights[activeType], entries.length);
+  $("#highlightCount").textContent = `${activeType === "video" ? "VIDEO" : "CAPTURE"} // ${String(entries.length).padStart(2, "0")}`;
+  $("#highlightVideoCount").textContent = String(counts.video);
+  $("#highlightImageCount").textContent = String(counts.image);
+  document.querySelectorAll("[data-highlight-filter]").forEach((button) => {
+    const active = button.dataset.highlightFilter === activeType;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  $("#highlightGrid").innerHTML = entries.slice(0, visibleCount).map(({ item, sourceIndex }) => {
     const url = safeHighlightUrl(item.url);
     if (!url && item.type !== "video") return "";
     const title = escapeHtml(item.title || item.filename || "精彩时刻");
@@ -335,9 +346,9 @@ function renderHighlights() {
       ? `${url ? `<video src="${escapeHtml(url)}" preload="none" muted playsinline aria-label="${title}"></video>` : `<span class="highlight-remote-preview" aria-hidden="true">REMOTE // ORIGINAL</span>`}<span class="highlight-play" aria-hidden="true">▶</span>`
       : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
     const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">${item.storageSource === "baidu" ? "百度云原画" : "云端原画"}</em>` : "";
-    return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${index}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
+    return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${sourceIndex}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
   }).join("");
-  const remaining = Math.max(0, state.highlights.length - visibleCount);
+  const remaining = Math.max(0, entries.length - visibleCount);
   const loadMore = $("#highlightLoadMore");
   const collapse = $("#highlightCollapse");
   loadMore.classList.toggle("hidden", remaining === 0);
@@ -349,6 +360,11 @@ function renderHighlights() {
   if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
     emptyTitle.textContent = "外置媒体库未连接";
     emptyMessage.textContent = "连接保存精彩时刻的外置硬盘，然后刷新页面。";
+  } else if (entries.length === 0 && state.highlights.length > 0) {
+    const label = activeType === "video" ? "视频" : "截图";
+    const alternate = activeType === "video" ? "截图" : "视频";
+    emptyTitle.textContent = `暂无${label}`;
+    emptyMessage.textContent = `媒体库中还没有${label}，可以切换到“${alternate}”继续查看。`;
   } else if (state.highlightStorage.customDirectory) {
     emptyTitle.textContent = "外置媒体库已接入";
     emptyMessage.textContent = "当前文件夹还没有受支持的游戏截图或视频。";
@@ -356,13 +372,15 @@ function renderHighlights() {
     emptyTitle.textContent = "信号尚未接入";
     emptyMessage.innerHTML = "把游戏截图或视频放进 <code>data/highlights</code>，刷新页面后便会出现在这里。";
   }
-  $("#highlightEmpty").classList.toggle("hidden", state.highlights.length > 0);
+  $("#highlightEmpty").classList.toggle("hidden", entries.length > 0);
 }
 
 async function loadHighlights() {
   const result = await api("/api/highlights");
   state.highlights = Array.isArray(result.highlights) ? result.highlights : [];
-  state.visibleHighlights = HIGHLIGHT_INITIAL_COUNT;
+  const counts = highlightCounts(state.highlights);
+  state.highlightFilter = counts.video > 0 || counts.image === 0 ? "video" : "image";
+  state.visibleHighlights = { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT };
   state.highlightStorage = { available: result.available !== false, customDirectory: result.customDirectory === true, remoteEnabled: result.remoteEnabled === true, remoteCount: Number(result.remoteCount || 0) };
   renderHighlights();
 }
@@ -700,9 +718,15 @@ $("#toggleCalendar").addEventListener("click", () => {
 });
 $("#activityCalendar").addEventListener("click", (event) => { const button = event.target.closest("button[data-date]"); if (button) openActivity(button.dataset.date); });
 $("#highlightGrid").addEventListener("click", (event) => { const button = event.target.closest("button[data-highlight-index]"); if (button) openHighlight(Number(button.dataset.highlightIndex)); });
-$("#highlightLoadMore").addEventListener("click", () => { state.visibleHighlights += HIGHLIGHT_PAGE_SIZE; renderHighlights(); });
+$("#highlightFilters").addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-highlight-filter]");
+  if (!button || button.dataset.highlightFilter === state.highlightFilter) return;
+  state.highlightFilter = normalizeHighlightType(button.dataset.highlightFilter);
+  renderHighlights();
+});
+$("#highlightLoadMore").addEventListener("click", () => { state.visibleHighlights[state.highlightFilter] += HIGHLIGHT_PAGE_SIZE; renderHighlights(); });
 $("#highlightCollapse").addEventListener("click", () => {
-  state.visibleHighlights = HIGHLIGHT_INITIAL_COUNT;
+  state.visibleHighlights[state.highlightFilter] = HIGHLIGHT_INITIAL_COUNT;
   renderHighlights();
   requestAnimationFrame(() => $("#highlights").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
 });
