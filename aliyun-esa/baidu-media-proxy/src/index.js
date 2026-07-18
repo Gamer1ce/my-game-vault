@@ -60,6 +60,27 @@ function responseHeaders(upstream, allowedOrigin) {
   return headers;
 }
 
+function statusPage(allowedOrigin) {
+  let mainSite = "https://gamer1ce.top";
+  try { if (allowedOrigin) mainSite = new URL(allowedOrigin).origin; } catch {}
+  const html = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>中枢圣殿 · 媒体节点</title><style>
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#080a0d;color:#f4f0df;font-family:system-ui,sans-serif}main{max-width:620px;padding:42px;border:1px solid #28e7f0;border-top:5px solid #f8e800;background:#0d1117}h1{margin:0 0 18px;color:#f8e800;font-size:clamp(30px,7vw,64px);letter-spacing:.04em}p{font-size:18px;line-height:1.7;color:#b8c0cc}a{display:inline-block;margin-top:16px;padding:13px 20px;background:#f8e800;color:#080a0d;font-weight:900;text-decoration:none}code{color:#28e7f0}</style></head>
+<body><main><h1>媒体节点在线</h1><p>这里是中枢圣殿的阿里云 ESA 视频中继，不是主站首页。它只处理由主站签发的短期 <code>Range</code> 播放请求。</p><a href="${mainSite}">返回中枢圣殿主站</a></main></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "public, max-age=300",
+      "Content-Security-Policy": `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'`,
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "X-Media-Edge": "aliyun-esa"
+    }
+  });
+}
+
 function runtimeEnvironment(environment, bundledEnvironment) {
   if (environment?.PROXY_KEY) return environment;
   const processEnvironment = typeof process !== "undefined" ? process.env : {};
@@ -84,6 +105,7 @@ export function createBaiduEsaProxy({
       if (request.method !== "GET") return new Response("Method Not Allowed", { status: 405 });
       if (!requestOriginAllowed(request, environment.ALLOWED_ORIGIN)) return new Response("Forbidden", { status: 403 });
       const parts = new URL(request.url).pathname.split("/").filter(Boolean);
+      if (parts.length === 0) return statusPage(environment.ALLOWED_ORIGIN);
       if (parts[0] !== "v1" || !parts[1]) return new Response("Not Found", { status: 404 });
       let payload;
       try {
