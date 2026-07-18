@@ -1,14 +1,14 @@
-# My Game Vault
+# Gamer1ce // 游迹
 
 > 搭建属于自己的全平台游戏记录网站。
 
-<img src="public/icons/app-icon-192.png" width="128" height="128" alt="My Game Vault 自定义主屏幕图标">
+<img src="public/icons/app-icon-192.png" width="128" height="128" alt="游迹自定义主屏幕图标">
 
-My Game Vault 是一个本地优先的 Xbox、PlayStation、Nintendo 与 Steam 游戏档案。它把不同平台的累计时长、成就、海报、最后游玩日期和 MC 评分归一到同一个赛博朋克风格页面，同时明确区分“官方确切数据”和“无法从接口还原的数据”。
+“游迹”是 Gamer1ce 的本地优先游戏档案。它把 Xbox、PlayStation、Nintendo 与 Steam 的累计时长、成就、海报、最后游玩日期和 MC 评分归一到同一个赛博朋克风格页面，同时明确区分“官方确切数据”和“无法从接口还原的数据”。
 
 ## 界面预览
 
-![My Game Vault 总览](docs/screenshots/overview.jpg)
+![游迹总览](docs/screenshots/overview.jpg)
 
 ![游戏活动日历](docs/screenshots/calendar.jpg)
 
@@ -41,7 +41,7 @@ npm start
 
 ### macOS 一键启动
 
-双击项目根目录中的 `启动游戏时光库.command` 即可。它会在首次运行时安装依赖、启动服务并自动打开浏览器；终端窗口保持打开时，网站会继续运行和自动同步。
+双击项目根目录中的 `启动游迹.command` 即可。它会在首次运行时安装依赖、启动服务并自动打开浏览器；终端窗口保持打开时，网站会继续运行和自动同步。
 
 如果 macOS 阻止首次打开，请右键该文件选择“打开”，确认一次后即可正常双击。也可以把它拖到桌面或 Dock 旁边方便使用。
 
@@ -195,7 +195,7 @@ macOS设置步骤：
 1. 在对象存储服务中创建一个私有Bucket，取得Region、S3 API地址、Access Key和Secret Key；密钥仅授予该Bucket的对象读取、写入和查询权限。
 2. 双击 `配置云端视频.command`，填写自动创建的 `data/remote-media.env` 并保存。
 3. 双击 `同步云端视频.command`。第一次会上传全部原视频，之后大小相同的对象会自动跳过；数GB文件会使用分段上传。
-4. 退出并重新双击 `启动游戏时光库.command`。已经上传的视频卡片会显示“云端原画”，点击后从云端直接播放。
+4. 退出并重新双击 `启动游迹.command`。已经上传的视频卡片会显示“云端原画”，点击后从云端直接播放。
 
 也可以在终端执行：
 
@@ -243,7 +243,7 @@ cp scripts/sync-azure-backup.zsh \
 chmod 700 "$HOME/Library/Application Support/GameTimeVault/sync-azure-backup.zsh"
 ```
 
-随后重启 My Game Vault 后台服务即可。同步任务作为网站进程的子进程运行，因此沿用网站已经获得的“文稿”和外置硬盘读取权限，避免额外 LaunchAgent 被 macOS 隐私保护拒绝。需要暂时停用时，给网站进程设置 `AZURE_BACKUP_SYNC_ENABLED=0`，或移走 Application Support 中的同步脚本。
+随后重启“游迹”后台服务即可。同步任务作为网站进程的子进程运行，因此沿用网站已经获得的“文稿”和外置硬盘读取权限，避免额外 LaunchAgent 被 macOS 隐私保护拒绝。需要暂时停用时，给网站进程设置 `AZURE_BACKUP_SYNC_ENABLED=0`，或移走 Application Support 中的同步脚本。
 
 Mac 端网站服务会在启动约 45 秒后执行一次 Azure 同步，此后每 60 分钟执行一次；若上一次媒体传输尚未结束，新一轮会自动跳过。首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。媒体目录采用镜像模式：新增和修改会上传，删除或重命名会在下一次成功同步结束时清理 Azure 上的旧文件；移动硬盘未挂载时不会执行媒体同步或远端删除。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
 

@@ -44,7 +44,7 @@ if [[ ! -d node_modules ]]; then
   }
 fi
 
-echo "正在启动 My Game Vault…"
+echo "正在启动 Gamer1ce // 游迹…"
 npm start &
 SERVER_PID=$!
 trap 'kill "$SERVER_PID" 2>/dev/null' EXIT INT TERM
