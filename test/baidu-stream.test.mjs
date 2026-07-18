@@ -126,3 +126,16 @@ test("阿里云ESA函数兼容同一播放令牌和Range流式转发", async () 
   assert.equal(observedRange, "bytes=0-1");
   assert.equal(response.headers.get("X-Media-Edge"), "aliyun-esa");
 });
+
+test("阿里云ESA部署产物可使用私密注入配置且仓库源码不含真实密钥", async () => {
+  const token = sealBaiduPlaybackPayload({ url: "https://d.pcs.baidu.com/file/clip.mp4", exp: 2_000 }, key);
+  const worker = createBaiduEsaProxy({
+    now: () => 1_000,
+    bundledEnvironment: { PROXY_KEY: keyText, ALLOWED_ORIGIN: "https://games.example.com" },
+    fetchImpl: async () => new Response(new Uint8Array([1]), { status: 206 })
+  });
+  const response = await worker.fetch(new Request(`https://media-cn.example.com/v1/${token}/clip.mp4`, {
+    headers: { Origin: "https://games.example.com", Range: "bytes=0-0" }
+  }));
+  assert.equal(response.status, 206);
+});

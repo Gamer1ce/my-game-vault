@@ -156,9 +156,9 @@ security add-generic-password -U \
 
 1. 在阿里云 ESA 创建站点，选择免费套餐和适合自己的加速区域；若域名没有中国内地备案，可先选择“全球（不包含中国内地）”。
 2. 在“边缘计算和 AI → 函数和 Pages”创建函数，入口使用 `aliyun-esa/baidu-media-proxy/src/index.js`，部署配置为同目录的 `esa.jsonc`。
-3. 为函数配置 `PROXY_KEY` 与 `ALLOWED_ORIGIN`。`PROXY_KEY` 可与本机 `BAIDU_PROXY_KEY` 相同，`ALLOWED_ORIGIN` 填公开网站 Origin，例如 `https://gamer1ce.top`。不要把这两个值写进源码或提交到 Git。
-4. 发布函数，绑定站点下的专用域名，例如 `media-cn.gamer1ce.top`，并确认 HTTPS 已生效。
-5. 在本机私有的 `data/baidu-media.env` 增加：
+3. 确认本机私有的 `data/baidu-media.env` 已配置 `BAIDU_PROXY_KEY` 与 `BAIDU_PLAYBACK_ORIGIN`。不要把这两个值写进源码或提交到 Git。
+4. 执行 `npm run media:baidu:deploy-esa`。脚本会上传函数、生成生产版本、绑定 `media-cn.gamer1ce.top`，把 Cloudflare 中的该子域设为指向 ESA 的仅 DNS CNAME，申请免费的 HTTPS 证书，并把中国线路地址同步到后台服务使用的私密配置，同时启用百度媒体读取。
+5. 脚本会在本机私有配置中维护：
 
 ```bash
 BAIDU_PROXY_URL_CN='https://media-cn.gamer1ce.top'
@@ -166,7 +166,7 @@ BAIDU_PROXY_URL_CN='https://media-cn.gamer1ce.top'
 BAIDU_PROXY_KEY_CN=''
 ```
 
-6. 同步这份私有配置到后台服务使用的 `~/Library/Application Support/GameTimeVault/baidu-media.env`，然后重启网站。配置文件和密钥均在 Git 忽略范围。
+6. ESA 的直接上传函数目前没有独立 Secret 绑定入口，因此部署脚本只在上传前将密钥注入临时部署产物；Git 仓库中的函数始终保留占位符。部署产物仅能由阿里云账号读取，本机配置保持 `600` 权限。部署后重启网站即可启用中国线路。
 
 阿里云 ESA 免费函数模式目前为每账号每天 10 万次请求，超过后当天返回 503；因此 Cloudflare 线路始终保留为备用。正式长期使用前，应从实际手机网络分别测试两条线路，而不是只按服务商名称判断快慢。
 

@@ -1,3 +1,8 @@
+const BUNDLED_ENVIRONMENT = Object.freeze({
+  PROXY_KEY: "__ESA_PROXY_KEY__",
+  ALLOWED_ORIGIN: "__ESA_ALLOWED_ORIGIN__"
+});
+
 function decodeBase64Url(value) {
   const base64 = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
   const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
@@ -55,15 +60,24 @@ function responseHeaders(upstream, allowedOrigin) {
   return headers;
 }
 
-function runtimeEnvironment(environment) {
+function runtimeEnvironment(environment, bundledEnvironment) {
   if (environment?.PROXY_KEY) return environment;
-  return typeof process !== "undefined" ? process.env : {};
+  const processEnvironment = typeof process !== "undefined" ? process.env : {};
+  if (processEnvironment?.PROXY_KEY) return processEnvironment;
+  if (bundledEnvironment?.PROXY_KEY && !bundledEnvironment.PROXY_KEY.startsWith("__ESA_")) {
+    return bundledEnvironment;
+  }
+  return {};
 }
 
-export function createBaiduEsaProxy({ fetchImpl = fetch, now = () => Date.now() } = {}) {
+export function createBaiduEsaProxy({
+  fetchImpl = fetch,
+  now = () => Date.now(),
+  bundledEnvironment = BUNDLED_ENVIRONMENT
+} = {}) {
   return {
     async fetch(request, suppliedEnvironment) {
-      const environment = runtimeEnvironment(suppliedEnvironment);
+      const environment = runtimeEnvironment(suppliedEnvironment, bundledEnvironment);
       if (request.method === "OPTIONS") {
         return new Response(null, { status: 204, headers: responseHeaders(new Response(), environment.ALLOWED_ORIGIN) });
       }
