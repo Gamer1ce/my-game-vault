@@ -229,7 +229,7 @@ npm start
 - `deploy/azure/game-vault.service`：以普通用户运行网站，仅允许应用写入数据目录。
 - `deploy/azure/Caddyfile`：为 `azure.gamer1ce.top` 自动申请 HTTPS 并反向代理到 Node.js。
 - `scripts/cloudflare-azure-dns.mjs`：使用已保存在 macOS 钥匙串中的 Cloudflare DNS Token 创建或更新备用域名，不把 Token 写进源码。
-- `scripts/sync-azure-backup.zsh`：通过 SQLite `.backup` 生成一致性快照，再用 SSH/rsync 同步数据库和媒体。
+- `scripts/sync-azure-backup.zsh`：通过 SQLite `.backup` 生成一致性快照，再用 SSH/rsync 同步数据库；媒体采用镜像同步，移动硬盘中删除或重命名的内容会在下一次成功同步后反映到 Azure。
 - `server.mjs`：Mac 后台网站检测到已安装同步脚本后，在启动 45 秒后执行一次，此后每小时执行一次；与平台自动同步使用同一个小时节奏。
 
 默认服务器地址、SSH 私钥路径、媒体目录和域名是本项目所有者的部署值。制作自己的版本时，应通过 `AZURE_BACKUP_REMOTE`、`AZURE_BACKUP_KEY_PATH`、`AZURE_BACKUP_MEDIA_DIR`、`AZURE_BACKUP_HOST` 与 `AZURE_BACKUP_IP` 覆盖，不要把私钥提交到 Git。
@@ -245,7 +245,7 @@ chmod 700 "$HOME/Library/Application Support/GameTimeVault/sync-azure-backup.zsh
 
 随后重启 My Game Vault 后台服务即可。同步任务作为网站进程的子进程运行，因此沿用网站已经获得的“文稿”和外置硬盘读取权限，避免额外 LaunchAgent 被 macOS 隐私保护拒绝。需要暂时停用时，给网站进程设置 `AZURE_BACKUP_SYNC_ENABLED=0`，或移走 Application Support 中的同步脚本。
 
-首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
+Mac 端网站服务会在启动约 45 秒后执行一次 Azure 同步，此后每 60 分钟执行一次；若上一次媒体传输尚未结束，新一轮会自动跳过。首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。媒体目录采用镜像模式：新增和修改会上传，删除或重命名会在下一次成功同步结束时清理 Azure 上的旧文件；移动硬盘未挂载时不会执行媒体同步或远端删除。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
 
 ### PlayStation
 

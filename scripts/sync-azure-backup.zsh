@@ -44,7 +44,7 @@ ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
   "sudo systemctl stop game-vault; install -m 600 '$remote_root/incoming/games.db.new' '$remote_root/data/games.db'; unlink '$remote_root/data/games.db-wal' 2>/dev/null || true; unlink '$remote_root/data/games.db-shm' 2>/dev/null || true; sudo systemctl start game-vault"
 
 if [[ -d "$media_dir" ]]; then
-  rsync -az --partial --partial-dir=.rsync-partial \
+  rsync -az --delete-delay --partial --partial-dir=.rsync-partial \
     --exclude='.DS_Store' \
     --exclude='.Spotlight-V100/' \
     --exclude='.Trashes/' \
