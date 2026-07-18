@@ -235,6 +235,24 @@ npm start
 
 默认服务器地址、SSH 私钥路径、媒体目录和域名是本项目所有者的部署值。制作自己的版本时，应通过 `AZURE_BACKUP_REMOTE`、`AZURE_BACKUP_KEY_PATH`、`AZURE_BACKUP_MEDIA_DIR`、`AZURE_BACKUP_HOST` 与 `AZURE_BACKUP_IP` 覆盖，不要把私钥提交到 Git。
 
+### Azure 公网防护
+
+当前备用站不再把 Azure 的 Web 端口直接暴露给互联网。`cloudflared` 在虚拟机内建立只出站的 Cloudflare Tunnel，`azure.gamer1ce.top` 通过隧道路由到 `http://127.0.0.1:4173`；Azure UFW 仅保留密钥 SSH，80、443 和 4173 的公网直连都由默认入站拒绝规则拦截。这样访客只能经过 Cloudflare 访问，源站 IPv4 即使被发现也不能绕过边缘防护。
+
+为隧道创建 DNS 记录时，传入 Cloudflare Tunnel ID；脚本会把现有 A 记录改成受代理的 `cfargotunnel.com` CNAME：
+
+```bash
+AZURE_BACKUP_HOST=azure.example.com \
+CLOUDFLARE_TUNNEL_ID=00000000-0000-0000-0000-000000000000 \
+npm run azure:dns
+```
+
+如果仍使用传统公网 IPv4，可设置 `AZURE_BACKUP_IP`；只有确认源站已限制为可信代理后才应同时设置 `CLOUDFLARE_DNS_PROXIED=1`。Tunnel Token 属于持久访问凭据，只能保存在服务器的 `cloudflared` systemd 服务配置中，不能写进 `.env`、README、截图或 GitHub。
+
+Cloudflare 区域还启用了 `API anti-abuse` 限流规则：同一 IP 对 `/api/*` 在 10 秒内超过 30 次请求时阻断 10 秒。阈值足以覆盖正常页面加载、视频播放地址获取和管理员操作，同时抑制简单脚本刷接口；应用自身仍对留言、点赞和管理员登录执行更严格的独立限流。Cloudflare 免费控制台若未提供 Bot Fight Mode，不影响 Tunnel、基础 DDoS 缓解与这条 API 限流规则生效。
+
+启用 UFW 前必须先放行 SSH，并在现有会话未断开的情况下另开一次 SSH 验证；随后分别确认 Cloudflare 域名仍返回 200、源站公网 443 和 4173 已超时。不要在 Tunnel 健康和域名路由尚未验证前关闭源站入口。
+
 安装本机每小时同步任务：
 
 ```bash
