@@ -264,7 +264,7 @@ h1 {
   color: var(--yellow);
   background: #080a0c;
   font: inherit;
-  line-height: inherit;
+  line-height: 1;
   letter-spacing: inherit;
   text-align: left;
   text-transform: inherit;
@@ -300,8 +300,14 @@ h1 {
 .hero-sequence-title.is-glitching .hero-sequence-text::before { color: var(--cyan); animation: hero-sequence-glitch-a .64s steps(1, end); }
 .hero-sequence-title.is-glitching .hero-sequence-text::after { color: var(--pink); animation: hero-sequence-glitch-b .64s steps(1, end); }
 .hero-sequence-title[data-state="connected"] {
-  font-size: clamp(48px, 6.2vw, 86px);
+  max-width: none;
+  font-size: clamp(46px, 5.4vw, 74px);
+  line-height: 1.08;
   letter-spacing: -.04em;
+}
+.hero-sequence-title[data-state="connected"] .hero-sequence-trigger {
+  padding-top: .15em;
+  padding-bottom: .2em;
 }
 .hero-copy > p {
   max-width: 720px;
