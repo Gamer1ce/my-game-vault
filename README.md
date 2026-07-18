@@ -109,7 +109,7 @@ data/highlights/
 
 网站通过只读接口 `GET /api/highlights` 返回媒体清单，通过 `/media/highlights/文件名` 提供图片和支持断点播放的视频。它没有网页上传、覆盖或删除接口；访客只能查看。要移除内容，直接在本机删除对应文件并刷新页面。
 
-若已经配置过百度网盘或云端代理，但希望临时切回原来的 Mac 本机线路，可在私密配置 `data/baidu-media.env` 以及后台服务使用的 `~/Library/Application Support/GameTimeVault/baidu-media.env` 中加入 `BAIDU_MEDIA_ENABLED='0'`，再重启网站。此时百度目录不会出现在网页中，外置硬盘中的媒体仍由 `/media/highlights/文件名` 通过 Mac 原样提供，并继续支持 HTTP Range 断点播放。将开关改回 `1` 后重启即可恢复云端线路，密钥和授权信息无需删除或重新申请。
+若已经配置过百度网盘或云端代理，但希望切回原来的 Mac 本机线路，可在私密配置 `data/baidu-media.env` 以及后台服务使用的 `~/Library/Application Support/GameTimeVault/baidu-media.env` 中加入 `BAIDU_MEDIA_ENABLED='0'`，再重启网站。此时百度目录不会出现在网页中，外置硬盘中的媒体仍由 `/media/highlights/文件名` 通过 Mac 原样提供，并继续支持 HTTP Range 断点播放。当前正式运行环境采用这一模式；只有确认云端代理已重新部署可用后，才应把开关改回 `1`。
 
 视频卡片使用 `preload="none"`，不会在首页同时抢占多条视频流。点击本机线路中不超过 256 MiB 的视频后，网页会主动完整下载原画并显示真实字节进度，完成后再从浏览器本地 Blob 播放；更大的文件则测量缓存增长速度，根据原画码率与当前线路计算建议缓存点。两种模式都保留“立即播放”。移动浏览器可能限制超大文件的缓存量，因此数GB原画仍建议使用对象存储或完整下载。
 
@@ -143,9 +143,11 @@ security add-generic-password -U \
 
 随后执行 `npm run media:baidu:deploy-worker`。脚本会读取现有 DDNS 配置确定 Cloudflare Account ID，上传 Worker，把随机代理密钥保存为 Cloudflare Secret，并把 Worker 绑定到 `BAIDU_PROXY_HOSTNAME` 指定的自定义域名（本项目默认使用 `media.gamer1ce.top`）。自定义域名可以避开部分网络无法访问 `workers.dev` 的问题；Cloudflare 会自动创建所需 DNS 记录和证书。为避免 macOS 后台服务受“文稿”目录隐私限制，脚本还会把同一份 `600` 权限配置同步到 `~/Library/Application Support/GameTimeVault/baidu-media.env`。若账号还没有 `workers.dev` 子域名，需要先进入一次 Cloudflare Workers 控制台完成免费初始化。
 
-#### 中国访问优化：阿里云 ESA + Cloudflare 双线路
+#### 可选的中国访问优化：阿里云 ESA + Cloudflare 双线路（当前停用）
 
-部分中国网络会把 Cloudflare Worker 调度到欧洲节点，形成“中国访客 → 欧洲 → 百度 → 欧洲 → 中国访客”的绕行。项目因此支持第二条阿里云 ESA 函数线路；它与 Cloudflare 并行存在，不改动原线路，也不复制或转码视频。
+这套方案已经完成过部署与实测，但实际播放速度低于 Mac 本地代理，因此 **2026-07-18 已从正式播放链路撤回**：`media-cn.gamer1ce.top` 的公网解析、ESA 函数绑定、函数和证书均已删除，网站私密配置中的百度媒体开关也已关闭。当前访客播放的是 Mac 外置硬盘中的本地媒体；本节源码与部署脚本仅作为将来重新测试时的可选方案保留，不代表该节点仍在线。
+
+部分中国网络可能把 Cloudflare Worker 调度到较远节点，形成绕行。项目曾为此支持第二条阿里云 ESA 函数线路；它可以与 Cloudflare 并行存在，不复制或转码视频。
 
 - 首次播放时，浏览器会同时对可用线路读取 256 KiB 的 Range 样本，选择实测速率更高的一条。
 - 选择结果只在当前浏览器会话缓存 10 分钟，网络变化后会重新测速。
@@ -168,7 +170,7 @@ BAIDU_PROXY_KEY_CN=''
 
 6. ESA 的直接上传函数目前没有独立 Secret 绑定入口，因此部署脚本只在上传前将密钥注入临时部署产物；Git 仓库中的函数始终保留占位符。部署产物仅能由阿里云账号读取，本机配置保持 `600` 权限。部署后重启网站即可启用中国线路。
 
-直接打开 `https://media-cn.gamer1ce.top/` 会显示“媒体节点在线”状态页并提供主站入口；真正的视频播放仍只接受主站生成的短期 `/v1/...` 地址。
+重新部署后，直接打开 `https://media-cn.gamer1ce.top/` 会显示“媒体节点在线”状态页并提供主站入口；真正的视频播放仍只接受主站生成的短期 `/v1/...` 地址。当前该域名没有 DNS 记录，访问失败属于预期结果。
 
 阿里云 ESA 免费函数模式目前为每账号每天 10 万次请求，超过后当天返回 503；因此 Cloudflare 线路始终保留为备用。正式长期使用前，应从实际手机网络分别测试两条线路，而不是只按服务商名称判断快慢。
 
