@@ -1037,6 +1037,43 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
 .back-top-footer:hover, .sync-all-footer:hover { color: #090a0c; background: var(--yellow); }
 .sync-all-footer:hover { background: var(--cyan); }
 .back-top-footer:disabled, .sync-all-footer:disabled { cursor: wait; opacity: .55; }
+.site-nodes {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  margin-top: 14px;
+  border: 1px solid var(--line-strong);
+  font-family: "Rajdhani", ui-monospace, monospace;
+  text-transform: uppercase;
+}
+.site-nodes-label {
+  display: grid;
+  place-items: center;
+  padding: 14px 18px;
+  color: #080a0c;
+  background: var(--yellow);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .13em;
+}
+.site-node {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+  padding: 13px 16px;
+  border-left: 1px solid var(--line);
+  color: #d9dde1;
+  background: #0a0c0f;
+  text-decoration: none;
+}
+.site-node small { color: var(--muted); font-family: "Noto Sans SC", sans-serif; font-size: 10px; font-weight: 800; }
+.site-node strong { overflow: hidden; font-size: 14px; letter-spacing: .05em; text-overflow: ellipsis; text-transform: none; white-space: nowrap; }
+.site-node > span { color: var(--cyan); font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+.site-node-backup > span { color: var(--pink); }
+.site-node:hover, .site-node:focus-visible { color: #080a0c; background: var(--cyan); outline: 0; }
+.site-node-backup:hover, .site-node-backup:focus-visible { background: var(--pink); }
+.site-node:hover small, .site-node:hover > span, .site-node:focus-visible small, .site-node:focus-visible > span { color: #080a0c; }
 .quick-top {
   position: fixed;
   right: 22px;
@@ -1214,5 +1251,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .page-end { align-items: stretch; flex-direction: column; }
   .page-end-actions { display: grid; }
   .back-top-footer, .sync-all-footer { width: 100%; }
+  .site-nodes { grid-template-columns: 1fr; }
+  .site-nodes-label { justify-items: start; }
+  .site-node { border-top: 1px solid var(--line); border-left: 0; }
   .quick-top { right: 14px; }
 }
