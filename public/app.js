@@ -4,9 +4,10 @@ import {
   readPreferredPlaybackRoute,
   savePreferredPlaybackRoute,
   selectPlaybackCandidate
-} from "./playback-route.js?v=20260717-1";
+} from "./playback-route.js?v=20260719-1";
 import { filteredHighlightEntries, highlightCounts, normalizeHighlightType, shuffleHighlights } from "./highlight-gallery.js?v=20260719-1";
 import { createHeroSequence } from "./hero-sequence.js?v=20260718-1";
+import { detectFastDownScroll } from "./fast-scroll.js?v=20260719-1";
 
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -49,6 +50,7 @@ heroSequenceTrigger.addEventListener("click", () => {
 function renderSecurity() {
   $("#importButton").classList.toggle("hidden", !state.security.canManage);
   $("#syncAllFooter").classList.toggle("hidden", !state.security.canManage);
+  $("#feedbackInboxButton").classList.toggle("hidden", !state.security.canManage);
   $("#adminButton").classList.toggle("hidden", !state.security.publicMode || (!state.security.canManage && !state.security.adminAvailable));
   $("#adminButton").textContent = state.security.canManage ? "退出管理" : "管理员登录";
   renderProviders();
@@ -303,6 +305,56 @@ $("#siteLikeButton").addEventListener("click", async (event) => {
 const compactGuestbook = window.matchMedia("(max-width: 560px)");
 compactGuestbook.addEventListener?.("change", renderDanmaku);
 setInterval(() => { if (document.visibilityState === "visible") loadGuestbook().catch(() => {}); }, 30_000);
+
+$("#feedbackForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector("button[type=submit]");
+  const status = $("#feedbackStatus");
+  button.disabled = true;
+  status.classList.remove("is-error");
+  status.textContent = "正在发送……";
+  try {
+    const body = Object.fromEntries(new FormData(form));
+    const result = await api("/api/feedback", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    if (result?.feedback) {
+      form.reset();
+      status.textContent = "已送达，感谢你留下坐标。";
+      toast("建议与反馈已发送");
+    }
+  } catch (error) {
+    status.classList.add("is-error");
+    status.textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+});
+
+function renderFeedbackInbox(items) {
+  const inbox = $("#feedbackInbox");
+  if (!items.length) {
+    inbox.innerHTML = '<p class="feedback-inbox-empty">反馈频道暂时没有新信号。</p>';
+    return;
+  }
+  inbox.innerHTML = items.map((item) => {
+    const createdAt = item.createdAt ? new Date(`${item.createdAt}Z`).toLocaleString("zh-CN") : "时间未知";
+    return `<article class="feedback-entry"><header><strong>${escapeHtml(item.nickname || "匿名玩家")}</strong><time>${escapeHtml(createdAt)}</time></header><p>${escapeHtml(item.message)}</p></article>`;
+  }).join("");
+}
+
+$("#feedbackInboxButton").addEventListener("click", async () => {
+  const button = $("#feedbackInboxButton");
+  button.disabled = true;
+  try {
+    const result = await api("/api/feedback");
+    renderFeedbackInbox(Array.isArray(result.feedback) ? result.feedback : []);
+    $("#feedbackDialog").showModal();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    button.disabled = false;
+  }
+});
 
 function compactTime(minutes) {
   const value = Math.max(0, Number(minutes || 0));
@@ -910,7 +962,9 @@ $("#adminForm").addEventListener("submit", async (event) => {
 });
 
 const quickTopButton = $("#quickTopButton");
+const quickBottomButton = $("#quickBottomButton");
 let quickTopTimer;
+let quickBottomTimer;
 let scrollWindowStartY = window.scrollY;
 let scrollWindowStartAt = performance.now();
 let ignoreFastScrollUntil = 0;
@@ -921,6 +975,12 @@ function hideQuickTop() {
   quickTopButton.tabIndex = -1;
 }
 
+function hideQuickBottom() {
+  quickBottomButton.classList.remove("is-visible");
+  quickBottomButton.setAttribute("aria-hidden", "true");
+  quickBottomButton.tabIndex = -1;
+}
+
 function showQuickTop() {
   quickTopButton.classList.add("is-visible");
   quickTopButton.setAttribute("aria-hidden", "false");
@@ -929,10 +989,26 @@ function showQuickTop() {
   quickTopTimer = setTimeout(hideQuickTop, 6000);
 }
 
+function showQuickBottom() {
+  quickBottomButton.classList.add("is-visible");
+  quickBottomButton.setAttribute("aria-hidden", "false");
+  quickBottomButton.tabIndex = 0;
+  clearTimeout(quickBottomTimer);
+  quickBottomTimer = setTimeout(hideQuickBottom, 6000);
+}
+
 function returnToTop() {
   ignoreFastScrollUntil = performance.now() + 1200;
   hideQuickTop();
+  hideQuickBottom();
   window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+
+function returnToBottom() {
+  ignoreFastScrollUntil = performance.now() + 1200;
+  hideQuickTop();
+  hideQuickBottom();
+  $("#feedback").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
 
 $("#backToTopFooter").addEventListener("click", returnToTop);
@@ -957,20 +1033,19 @@ $("#syncAllFooter").addEventListener("click", async (event) => {
   }
 });
 quickTopButton.addEventListener("click", returnToTop);
+quickBottomButton.addEventListener("click", returnToBottom);
 window.addEventListener("scroll", () => {
   const time = performance.now();
   const position = window.scrollY;
   if (position < 420) hideQuickTop();
+  if (position + window.innerHeight >= $("#feedback").offsetTop) hideQuickBottom();
   if (time < ignoreFastScrollUntil) return;
-  if (position < scrollWindowStartY || time - scrollWindowStartAt > 220) {
-    scrollWindowStartY = position;
-    scrollWindowStartAt = time;
-    return;
-  }
-  if (position > 700 && position - scrollWindowStartY > 420) {
+  const fastScroll = detectFastDownScroll({ startY: scrollWindowStartY, startAt: scrollWindowStartAt }, position, time);
+  scrollWindowStartY = fastScroll.startY;
+  scrollWindowStartAt = fastScroll.startAt;
+  if (fastScroll.triggered) {
     showQuickTop();
-    scrollWindowStartY = position;
-    scrollWindowStartAt = time;
+    if (position + window.innerHeight < $("#feedback").offsetTop) showQuickBottom();
   }
 }, { passive: true });
 

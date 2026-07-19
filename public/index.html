@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260718-6">
+  <link rel="stylesheet" href="/styles.css?v=20260719-1">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
@@ -119,6 +119,20 @@
       <div><h2 data-text="数据来源" aria-label="数据来源">数据来源</h2><p class="section-note">“欲知大道，必先为史。”<cite>——龚自珍《定庵续集》</cite></p></div>
       <div id="providerList" class="provider-list"></div>
     </section>
+    <section class="feedback-section" id="feedback">
+      <div class="feedback-copy">
+        <span>OPEN CHANNEL // 反馈通道</span>
+        <h2 data-text="建议与反馈" aria-label="建议与反馈">建议与反馈</h2>
+        <p>若你在档案中发现断裂的时间、失真的记录，或想到更好的入口，请把坐标留在这里。内容不会公开展示，仅管理员可见。</p>
+        <button class="feedback-inbox hidden" id="feedbackInboxButton" type="button">查看收到的反馈</button>
+      </div>
+      <form class="feedback-form" id="feedbackForm" autocomplete="off">
+        <label><span>你的代号 <small>可选</small></span><input name="nickname" maxlength="16" placeholder="匿名玩家"></label>
+        <label><span>通讯内容</span><textarea name="message" minlength="4" maxlength="600" rows="5" placeholder="写下你的建议、遇到的问题，或希望加入的功能……" required></textarea></label>
+        <input class="feedback-trap" name="website" tabindex="-1" aria-hidden="true" autocomplete="off">
+        <div class="feedback-submit-row"><small id="feedbackStatus" aria-live="polite">最多 600 字</small><button type="submit">发送至中枢 →</button></div>
+      </form>
+    </section>
     <div class="page-end">
       <div class="page-end-status"><span>DATA PULSE // EVERY 1 HOUR</span><small>服务运行期间，每小时自动同步已连接的游戏平台</small></div>
       <div class="page-end-actions"><button class="sync-all-footer hidden" id="syncAllFooter" type="button">立即同步游戏数据 ↻</button><button class="back-top-footer" id="backToTopFooter" type="button">一键回到顶部 ↑</button></div>
@@ -131,6 +145,14 @@
   </main>
 
   <button class="quick-top" id="quickTopButton" type="button" aria-label="快速回到顶部" aria-hidden="true" tabindex="-1"><span>↑</span> 顶部</button>
+  <button class="quick-top quick-bottom" id="quickBottomButton" type="button" aria-label="快速前往页面底部的建议与反馈" aria-hidden="true" tabindex="-1"><span>↓</span> 底部</button>
+
+  <dialog id="feedbackDialog">
+    <div class="feedback-dialog-body">
+      <div class="dialog-head"><h2>收到的建议与反馈</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <div class="feedback-inbox-list" id="feedbackInbox"></div>
+    </div>
+  </dialog>
 
   <dialog id="importDialog">
     <form id="importForm">
@@ -180,6 +202,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=20260719-5"></script>
+  <script type="module" src="/app.js?v=20260719-6"></script>
 </body>
 </html>

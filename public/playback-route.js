@@ -79,7 +79,8 @@ export async function selectPlaybackCandidate(candidates, options = {}) {
   const preferredId = options.preferredId;
   const preferred = preferredId && candidates.find((candidate) => candidate.id === preferredId);
   if (preferred) return preferred;
-  const results = await Promise.all(candidates.map((candidate) => measurePlaybackCandidate(candidate, options)));
+  const measure = options.measureImpl || measurePlaybackCandidate;
+  const results = await Promise.all(candidates.map((candidate) => measure(candidate, options)));
   const successful = results.filter((result) => result.ok)
     .sort((left, right) => right.bytesPerSecond - left.bytesPerSecond);
   return successful[0]?.candidate || candidates[0];

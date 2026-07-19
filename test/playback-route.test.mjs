@@ -31,12 +31,11 @@ test("双线路首次播放选择实测速率更高的候选", async () => {
     { id: "cloudflare", url: "https://media.example/video" }
   ];
   const selected = await selectPlaybackCandidate(candidates, {
-    sampleBytes: 4,
-    fetchImpl: async (url) => {
-      if (url.includes("media-cn")) await new Promise((resolve) => setTimeout(resolve, 2));
-      else await new Promise((resolve) => setTimeout(resolve, 15));
-      return new Response(new Uint8Array([1, 2, 3, 4]), { status: 206 });
-    }
+    measureImpl: async (candidate) => ({
+      candidate,
+      ok: true,
+      bytesPerSecond: candidate.id === "aliyun-esa" ? 8_000_000 : 1_000_000
+    })
   });
   assert.equal(selected.id, "aliyun-esa");
   assert.equal((await selectPlaybackCandidate(candidates, { preferredId: "cloudflare" })).id, "cloudflare");

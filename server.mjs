@@ -165,6 +165,12 @@ db.exec(`
     message TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS feedback_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nickname TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
   CREATE TABLE IF NOT EXISTS site_counters (
     name TEXT PRIMARY KEY,
     value INTEGER NOT NULL DEFAULT 0 CHECK(value >= 0),
@@ -243,7 +249,7 @@ const sessionLifetime = 8 * 60 * 60 * 1000;
 const loginWindow = 15 * 60 * 1000;
 const loginLimit = 8;
 const visitorWriteAttempts = new Map();
-const visitorWritePaths = new Set(["/api/guestbook", "/api/likes"]);
+const visitorWritePaths = new Set(["/api/guestbook", "/api/likes", "/api/feedback"]);
 
 function visitorKey(req, action) {
   return `${action}:${req.ip || req.socket.remoteAddress || "unknown"}`;
@@ -406,6 +412,20 @@ const incrementLikes = db.prepare(`
   WHERE name = 'likes'
   RETURNING value
 `);
+const listFeedbackMessages = db.prepare(`
+  SELECT id, nickname, message, created_at AS createdAt
+  FROM feedback_messages
+  ORDER BY id DESC
+  LIMIT 200
+`);
+const insertFeedbackMessage = db.prepare(`
+  INSERT INTO feedback_messages(nickname, message) VALUES (?, ?)
+  RETURNING id, nickname, message, created_at AS createdAt
+`);
+const trimFeedbackMessages = db.prepare(`
+  DELETE FROM feedback_messages
+  WHERE id NOT IN (SELECT id FROM feedback_messages ORDER BY id DESC LIMIT 1000)
+`);
 
 app.get("/api/guestbook", (_req, res) => {
   res.json({
@@ -438,6 +458,27 @@ app.post("/api/likes", (req, res) => {
   }
   const result = incrementLikes.get();
   return res.json({ likes: Number(result?.value || 0) });
+});
+
+app.get("/api/feedback", (req, res) => {
+  if (!adminAuthenticated(req)) return res.status(401).json({ error: "需要先解锁管理员模式" });
+  return res.json({ feedback: listFeedbackMessages.all() });
+});
+
+app.post("/api/feedback", (req, res) => {
+  if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站反馈请求" });
+  if (!visitorWriteAllowed(req, "feedback", { limit: 3, windowMs: 30 * 60 * 1000 })) {
+    res.set("Retry-After", "1800");
+    return res.status(429).json({ error: "反馈发送得太快了，请稍后再试" });
+  }
+  if (String(req.body?.website || "").trim()) return res.status(204).end();
+  const nickname = cleanGuestText(req.body?.nickname, 16) || "匿名玩家";
+  const message = cleanGuestText(req.body?.message, 600);
+  if (!message) return res.status(400).json({ error: "请输入建议或反馈" });
+  if (message.length < 4) return res.status(400).json({ error: "反馈至少需要 4 个字符" });
+  const saved = insertFeedbackMessage.get(nickname, message);
+  trimFeedbackMessages.run();
+  return res.status(201).json({ feedback: saved });
 });
 
 const listGames = db.prepare(`
