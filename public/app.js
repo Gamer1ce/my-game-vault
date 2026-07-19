@@ -166,7 +166,9 @@ function render() {
     latest: state.games.map((game) => game.updatedAt || "").sort().at(-1)?.slice(0, 10) || null
   };
   const totalMinutes = Math.max(0, Math.round(Number(summary.totalMinutes || 0)));
-  const totalPlaytime = `${Math.floor(totalMinutes / 60).toLocaleString()} 小时${totalMinutes % 60 ? ` ${totalMinutes % 60} 分` : ""}`;
+  const totalHours = `${Math.floor(totalMinutes / 60).toLocaleString()} 小时`;
+  const totalRemainder = totalMinutes % 60;
+  const totalPlaytime = `${totalHours}${totalRemainder ? ` ${totalRemainder} 分` : ""}`;
   $("#stats").innerHTML = [
     ["总游戏时长", totalPlaytime],
     ["已记录游戏", `${Number(summary.gameCount || 0)} 款`],
@@ -174,7 +176,13 @@ function render() {
     ["全成就游戏", `${Number(summary.completedGames || 0)} 款`],
     ["游玩最多平台", summary.primaryPlatform ? platformNames[summary.primaryPlatform] : "—"],
     ["最近同步日期", summary.latest || "—"]
-  ].map(([label,value], index) => `<div class="stat ${index === 0 ? "stat-primary" : ""}"><small class="stat-label">${escapeHtml(label)}</small><strong class="stat-value" data-text="${escapeHtml(value)}" aria-label="${escapeHtml(value)}">${escapeHtml(value)}</strong></div>`).join("");
+  ].map(([label,value], index) => {
+    const primaryValue = index === 0
+      ? `<span class="stat-hours">${escapeHtml(totalHours)}</span>${totalRemainder ? `<span class="stat-minutes">${totalRemainder} 分</span>` : ""}`
+      : escapeHtml(value);
+    const glitchText = index === 0 ? totalHours : value;
+    return `<div class="stat ${index === 0 ? "stat-primary" : ""}"><small class="stat-label">${escapeHtml(label)}</small><strong class="stat-value" data-text="${escapeHtml(glitchText)}" aria-label="${escapeHtml(value)}">${primaryValue}</strong></div>`;
+  }).join("");
 
   const games = state.games.filter((game) => (state.platform === "all" || game.platform === state.platform) && game.title.toLowerCase().includes(state.query));
   $("#games").innerHTML = games.map((game) => `<article class="game platform-${game.platform}">

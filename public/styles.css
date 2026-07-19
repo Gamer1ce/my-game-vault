@@ -477,7 +477,21 @@ main {
   line-height: 1;
   white-space: nowrap;
 }
-.stat-primary .stat-value { color: var(--yellow); font-size: clamp(36px, 3.4vw, 54px); }
+.stat-primary .stat-value {
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px clamp(9px, 1vw, 16px);
+  color: var(--yellow);
+  font-size: clamp(34px, 3vw, 48px);
+}
+.stat-hours, .stat-minutes { white-space: nowrap; }
+.stat-minutes {
+  color: var(--ink);
+  font-size: .52em;
+  letter-spacing: .04em;
+}
 .stat-primary .stat-value::before {
   content: attr(data-text);
   position: absolute;
@@ -1224,6 +1238,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .hero-sequence-title[data-state="connected"] { font-size: 32px; }
   .stat { padding: 17px 14px; }
   .stat-value, .stat-primary .stat-value { font-size: 27px; }
+  .stat-primary .stat-minutes { font-size: 15px; }
   .activity-section { margin-top: 52px; padding-top: 26px; }
   .recent-activity { margin-top: 52px; padding-top: 26px; }
   .recent-chart { min-width: 790px; }
