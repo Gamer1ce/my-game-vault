@@ -370,7 +370,7 @@ function renderHighlights() {
     const title = escapeHtml(item.title || item.filename || "精彩时刻");
     const date = item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "日期未知";
     const media = item.type === "video"
-      ? `${url ? `<video src="${escapeHtml(url)}" preload="none" muted playsinline aria-label="${title}"></video>` : `<span class="highlight-remote-preview" aria-hidden="true">REMOTE // ORIGINAL</span>`}<span class="highlight-play" aria-hidden="true">▶</span>`
+      ? `${url ? `<video src="${escapeHtml(`${url}#t=0.001`)}" preload="metadata" muted playsinline aria-label="${title}"></video>` : `<span class="highlight-remote-preview" aria-hidden="true">REMOTE // ORIGINAL</span>`}<span class="highlight-play" aria-hidden="true">▶</span>`
       : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
     const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">${item.storageSource === "baidu" ? "百度云原画" : "云端原画"}</em>` : "";
     return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${sourceIndex}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
