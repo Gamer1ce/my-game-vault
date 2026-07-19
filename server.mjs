@@ -17,7 +17,7 @@ import { createNintendoConnector } from "./src/platforms/nintendo.mjs";
 import { createSteamConnector } from "./src/platforms/steam.mjs";
 import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
-import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, shanghaiDate } from "./src/activity.mjs";
+import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, reconciledLifetimeMinutes, shanghaiDate } from "./src/activity.mjs";
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
 import { createSyncRunner } from "./src/sync-runner.mjs";
@@ -567,6 +567,49 @@ const upsertNintendoHistoryState = db.prepare(`
     total_played_days = excluded.total_played_days,
     synced_at = CURRENT_TIMESTAMP
 `);
+const listNintendoHistoryTotals = db.prepare(`
+  SELECT g.id, g.minutes, COALESCE(g.platform_minutes, g.minutes) AS platformMinutes,
+         g.last_played AS lastPlayed, SUM(d.minutes) AS historyMinutes, MAX(d.date) AS historyLastPlayed
+  FROM games g
+  JOIN daily_activity d ON d.platform = 'nintendo' AND d.external_id = g.external_id AND d.precision = 'exact'
+  WHERE g.platform = 'nintendo' AND g.external_id IS NOT NULL
+  GROUP BY g.id
+`);
+const updateNintendoHistoryTotal = db.prepare(`
+  UPDATE games
+  SET minutes = ?, platform_minutes = ?, last_played = ?, updated_at = CURRENT_TIMESTAMP
+  WHERE id = ?
+`);
+
+function reconcileNintendoHistoryTotals() {
+  const changes = listNintendoHistoryTotals.all().flatMap((row) => {
+    const minutes = reconciledLifetimeMinutes(row.platformMinutes, row.historyMinutes);
+    const historyLastPlayed = String(row.historyLastPlayed || "");
+    const currentLastPlayed = String(row.lastPlayed || "");
+    const lastPlayed = historyLastPlayed > currentLastPlayed ? historyLastPlayed : currentLastPlayed || null;
+    if (minutes === Number(row.minutes || 0) && lastPlayed === (row.lastPlayed || null)) return [];
+    return [{ id: row.id, minutes, lastPlayed, addedMinutes: Math.max(0, minutes - Number(row.minutes || 0)) }];
+  });
+  if (!changes.length) return { adjustedGames: 0, addedMinutes: 0 };
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    for (const change of changes) updateNintendoHistoryTotal.run(change.minutes, change.minutes, change.lastPlayed, change.id);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+  return {
+    adjustedGames: changes.length,
+    addedMinutes: changes.reduce((sum, change) => sum + change.addedMinutes, 0)
+  };
+}
+
+const startupNintendoReconciliation = reconcileNintendoHistoryTotals();
+if (startupNintendoReconciliation.adjustedGames > 0) {
+  console.log(`Nintendo 官方逐日历史已校正 ${startupNintendoReconciliation.adjustedGames} 款游戏，补入 ${startupNintendoReconciliation.addedMinutes} 分钟`);
+}
 const listPlaystationCalibrationGames = db.prepare(`
   SELECT id, title, minutes, COALESCE(platform_minutes, minutes) AS platformMinutes,
          last_played AS lastPlayed, platform_id AS platformId, external_id AS externalId,
@@ -655,7 +698,10 @@ function saveSyncedGames(games, source, { recordDelta = true } = {}) {
       const previous = platformId
         ? findGameByPlatformId.get(game.platform, platformId, platformId)
         : findGameByTitle.get(game.platform, game.title);
-      const delta = cumulativeDelta(previous?.platformMinutes, game.minutes);
+      const platformMinutes = game.platform === "nintendo"
+        ? reconciledLifetimeMinutes(game.minutes, previous?.platformMinutes)
+        : game.minutes;
+      const delta = cumulativeDelta(previous?.platformMinutes, platformMinutes);
       const gameKey = platformId || String(game.title).trim().toLocaleLowerCase("zh-CN");
       if (recordDelta && delta > 0) {
         upsertDailyActivity.run(activityDate(game.lastPlayed), game.platform, gameKey, platformId, game.title, delta, game.coverUrl || null, game.storeUrl || null);
@@ -665,7 +711,7 @@ function saveSyncedGames(games, source, { recordDelta = true } = {}) {
         upsertPlayEvent.run(game.lastPlayed, game.platform, gameKey, platformId, game.title, game.coverUrl || null, game.storeUrl || null);
       }
       const achievementMarker = game.achievementsTotal === null || game.achievementsTotal === undefined ? null : Number(game.achievementsTotal);
-      upsertSyncedGame.run(game.platform, game.title, game.minutes, game.minutes, game.lastPlayed || null, source, platformId, platformId, game.conceptId || null, game.coverUrl || null, game.storeUrl || null,
+      upsertSyncedGame.run(game.platform, game.title, platformMinutes, platformMinutes, game.lastPlayed || null, source, platformId, platformId, game.conceptId || null, game.coverUrl || null, game.storeUrl || null,
         game.achievementsEarned ?? null, game.achievementsTotal ?? null, achievementMarker, game.notes || "");
     }
     db.exec("COMMIT");
@@ -863,6 +909,7 @@ async function syncNintendo() {
         throw error;
       }
     }
+    const reconciliation = reconcileNintendoHistoryTotals();
     connection = {
       ...connection,
       nickname: result.nickname || connection.nickname || null,
@@ -872,7 +919,7 @@ async function syncNintendo() {
       itemCount: result.games.length
     };
     credentials.set("nintendo", connection);
-    return { synced: result.games.length, historyBackfilled: Number(result.historyBackfilled || 0), connection: publicConnection("nintendo") };
+    return { synced: result.games.length, historyBackfilled: Number(result.historyBackfilled || 0), reconciledMinutes: reconciliation.addedMinutes, connection: publicConnection("nintendo") };
   } catch (error) {
     credentials.set("nintendo", { ...connection, lastError: error.message || "同步失败" });
     throw error;

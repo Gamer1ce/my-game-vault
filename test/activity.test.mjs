@@ -1,11 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, shanghaiDate } from "../src/activity.mjs";
+import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, reconciledLifetimeMinutes, shanghaiDate } from "../src/activity.mjs";
 
 test("累计时长只记录正向增量且首次同步仅建立基线", () => {
   assert.equal(cumulativeDelta(null, 600), 0);
   assert.equal(cumulativeDelta(600, 645), 45);
   assert.equal(cumulativeDelta(645, 620), 0);
+});
+
+test("累计字段落后时使用官方逐日历史且不会重复叠加", () => {
+  assert.equal(reconciledLifetimeMinutes(5662, 5732), 5732);
+  assert.equal(reconciledLifetimeMinutes(5800, 5732), 5800);
+  assert.equal(reconciledLifetimeMinutes(5800, 60), 5800);
 });
 
 test("日历使用上海时区日期并正确跨月", () => {

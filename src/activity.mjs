@@ -3,6 +3,12 @@ export function cumulativeDelta(previousMinutes, currentMinutes) {
   return Math.max(0, Math.round(Number(currentMinutes || 0)) - Math.round(Number(previousMinutes || 0)));
 }
 
+export function reconciledLifetimeMinutes(platformMinutes, exactHistoryMinutes) {
+  const platform = Math.max(0, Math.round(Number(platformMinutes || 0)));
+  const history = Math.max(0, Math.round(Number(exactHistoryMinutes || 0)));
+  return Math.max(platform, history);
+}
+
 export function shanghaiDate(date = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit"

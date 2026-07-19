@@ -165,8 +165,10 @@ function render() {
     primaryPlatform: Object.entries(totals).sort((a,b) => b[1] - a[1])[0]?.[0] || null,
     latest: state.games.map((game) => game.updatedAt || "").sort().at(-1)?.slice(0, 10) || null
   };
+  const totalMinutes = Math.max(0, Math.round(Number(summary.totalMinutes || 0)));
+  const totalPlaytime = `${Math.floor(totalMinutes / 60).toLocaleString()} 小时${totalMinutes % 60 ? ` ${totalMinutes % 60} 分` : ""}`;
   $("#stats").innerHTML = [
-    ["总游戏时长", `${Math.floor(Number(summary.totalMinutes || 0) / 60).toLocaleString()} 小时`],
+    ["总游戏时长", totalPlaytime],
     ["已记录游戏", `${Number(summary.gameCount || 0)} 款`],
     ["已解锁成就", `${Number(summary.achievementsEarned || 0).toLocaleString()} 个`],
     ["全成就游戏", `${Number(summary.completedGames || 0)} 款`],
