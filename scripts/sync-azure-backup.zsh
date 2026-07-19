@@ -37,6 +37,19 @@ sqlite3 "$project_dir/data/games.db" ".backup '$snapshot_dir/games.db'"
 ssh -i "$ssh_key" -o BatchMode=yes -o ConnectTimeout=20 "$remote_host" \
   "mkdir -p '$remote_root/incoming' '$remote_root/data' '$remote_root/media'"
 
+local_lock_hash=$(shasum -a 256 "$project_dir/package-lock.json" | awk '{print $1}')
+remote_lock_hash=$(ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
+  "sha256sum '$remote_root/app/package-lock.json' 2>/dev/null | awk '{print \$1}'" || true)
+
+git -C "$project_dir" ls-files -z | rsync -az --from0 --files-from=- \
+  -e "ssh -i '$ssh_key' -o BatchMode=yes" \
+  "$project_dir/" "$remote_host:$remote_root/app/"
+
+if [[ "$local_lock_hash" != "$remote_lock_hash" ]]; then
+  ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
+    "cd '$remote_root/app' && npm ci --omit=dev"
+fi
+
 rsync -az -e "ssh -i '$ssh_key' -o BatchMode=yes" \
   "$snapshot_dir/games.db" "$remote_host:$remote_root/incoming/games.db.new"
 
