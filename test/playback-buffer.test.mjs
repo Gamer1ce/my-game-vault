@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_FULL_CACHE_LIMIT_BYTES, estimatedBufferWait, recommendedBufferTarget, shouldFullyCacheVideo } from "../public/playback-buffer.js";
+import { DEFAULT_FULL_CACHE_LIMIT_BYTES, estimatedBufferWait, recommendedBufferTarget, resumeBufferedPlayback, shouldFullyCacheVideo } from "../public/playback-buffer.js";
 
 test("线路快于视频码率时只需短缓存", () => {
   assert.equal(recommendedBufferTarget(120, 1.5), 12);
@@ -23,4 +23,18 @@ test("只主动完整缓存体积安全的本机视频", () => {
   assert.equal(shouldFullyCacheVideo(90 * 1024 * 1024, "local"), true);
   assert.equal(shouldFullyCacheVideo(DEFAULT_FULL_CACHE_LIMIT_BYTES + 1, "local"), false);
   assert.equal(shouldFullyCacheVideo(90 * 1024 * 1024, "remote"), false);
+});
+
+test("立即播放复用已有媒体地址且不会重新加载缓存", async () => {
+  const video = {
+    src: "https://media.example/video.mp4",
+    loadCalls: 0,
+    playCalls: 0,
+    load() { this.loadCalls += 1; },
+    async play() { this.playCalls += 1; }
+  };
+  await resumeBufferedPlayback(video);
+  assert.equal(video.src, "https://media.example/video.mp4");
+  assert.equal(video.loadCalls, 0);
+  assert.equal(video.playCalls, 1);
 });

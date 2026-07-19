@@ -14,6 +14,10 @@ export function estimatedBufferWait(targetSeconds, bufferedSeconds, mediaSeconds
   return Math.max(0, (Number(targetSeconds || 0) - Number(bufferedSeconds || 0)) / rate);
 }
 
+export async function resumeBufferedPlayback(video) {
+  return video.play();
+}
+
 export const DEFAULT_FULL_CACHE_LIMIT_BYTES = 256 * 1024 * 1024;
 
 export function shouldFullyCacheVideo(size, source, limit = DEFAULT_FULL_CACHE_LIMIT_BYTES) {

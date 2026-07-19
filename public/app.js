@@ -1,4 +1,4 @@
-import { estimatedBufferWait, recommendedBufferTarget, shouldFullyCacheVideo } from "./playback-buffer.js?v=20260717-2";
+import { estimatedBufferWait, recommendedBufferTarget, resumeBufferedPlayback, shouldFullyCacheVideo } from "./playback-buffer.js?v=20260719-1";
 import {
   playbackCandidates,
   readPreferredPlaybackRoute,
@@ -477,16 +477,10 @@ async function loadHighlights() {
 
 let highlightPlaybackRequest = 0;
 let highlightBufferTimer = null;
-let highlightBufferAbort = null;
-let highlightPlaybackObjectUrl = null;
 
 function stopHighlightBufferTimer() {
   if (highlightBufferTimer) clearInterval(highlightBufferTimer);
   highlightBufferTimer = null;
-  if (highlightBufferAbort) highlightBufferAbort.abort();
-  highlightBufferAbort = null;
-  if (highlightPlaybackObjectUrl) URL.revokeObjectURL(highlightPlaybackObjectUrl);
-  highlightPlaybackObjectUrl = null;
 }
 
 function bufferedEndAtCurrentTime(video) {
@@ -539,23 +533,12 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   };
 
   const startPlayback = async () => {
-    try { await video.play(); } catch { status.textContent = "浏览器阻止了自动播放，请点击视频控制栏中的播放键。"; }
+    try { await resumeBufferedPlayback(video); } catch { status.textContent = "浏览器阻止了自动播放，请点击视频控制栏中的播放键。"; }
   };
 
   const update = () => {
     if (request !== highlightPlaybackRequest || !video.isConnected) return;
     const duration = Number(video.duration);
-    if (fullCache && highlightPlaybackObjectUrl) {
-      bar.style.width = "100%";
-      panel.style.setProperty("--buffer-target", "100%");
-      status.textContent = sample.playing
-        ? "原画已完整缓存，正在从浏览器本地播放。"
-        : `原画已完整缓存（${formatFileSize(item.size)}），播放不再受本机上行速度影响。`;
-      bufferedPlay.disabled = sample.playing;
-      bufferedPlay.textContent = sample.playing ? "正在播放" : "开始播放";
-      playNow.hidden = true;
-      return;
-    }
     if (!Number.isFinite(duration) || duration <= 0) {
       status.textContent = "正在读取视频索引…";
       return;
@@ -563,24 +546,31 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     const bufferedEnd = Math.min(duration, bufferedEndAtCurrentTime(video));
     const elapsed = Math.max(0.001, (performance.now() - sample.startedAt) / 1000);
     if (elapsed >= 2 && bufferedEnd > sample.initialEnd) sample.rate = (bufferedEnd - sample.initialEnd) / elapsed;
-    const target = recommendedBufferTarget(duration, sample.rate);
+    const target = fullCache ? duration : recommendedBufferTarget(duration, sample.rate);
     const ready = bufferedEnd + 0.5 >= target;
     const wait = estimatedBufferWait(target, bufferedEnd, sample.rate);
     bar.style.width = `${Math.min(100, (bufferedEnd / duration) * 100).toFixed(2)}%`;
     panel.style.setProperty("--buffer-target", `${Math.min(100, (target / duration) * 100).toFixed(2)}%`);
 
     if (sample.playing) {
-      status.textContent = `已缓存到 ${formatBufferClock(bufferedEnd)} / ${formatBufferClock(duration)}`;
+      status.textContent = ready && fullCache
+        ? "原画已完整缓存，正在从浏览器缓存播放。"
+        : `已保留 ${formatBufferClock(bufferedEnd)} 缓存，正在播放原画。`;
       bufferedPlay.disabled = true;
       bufferedPlay.textContent = "正在播放";
       playNow.hidden = true;
     } else if (ready) {
-      status.textContent = `已缓存 ${formatBufferClock(bufferedEnd)}，达到当前线路的建议值。`;
+      status.textContent = fullCache
+        ? `原画已完整缓存（${formatFileSize(item.size)}），可以开始播放。`
+        : `已缓存 ${formatBufferClock(bufferedEnd)}，达到当前线路的建议值。`;
       bufferedPlay.disabled = false;
-      bufferedPlay.textContent = "开始流畅播放";
+      bufferedPlay.textContent = fullCache ? "开始播放" : "开始流畅播放";
+      if (fullCache) playNow.hidden = true;
     } else {
       const estimate = wait === null ? "正在测量线路速度" : `预计还需约 ${formatBufferClock(wait)}`;
-      status.textContent = `已缓存 ${formatBufferClock(bufferedEnd)} / 建议 ${formatBufferClock(target)} · ${estimate}`;
+      status.textContent = fullCache
+        ? `已缓存 ${formatBufferClock(bufferedEnd)} / ${formatBufferClock(duration)} · ${estimate}`
+        : `已缓存 ${formatBufferClock(bufferedEnd)} / 建议 ${formatBufferClock(target)} · ${estimate}`;
       bufferedPlay.disabled = true;
       bufferedPlay.textContent = "正在预缓存";
     }
@@ -607,78 +597,16 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   });
   viewer.replaceChildren(video, source, panel);
   stopHighlightBufferTimer();
-  if (!fullCache) {
-    playNow.addEventListener("click", startPlayback);
-    video.src = activePlaybackUrl;
-    highlightBufferTimer = setInterval(update, 750);
-    video.load();
-    update();
-    return;
+  if (fullCache) {
+    panel.querySelector(".highlight-buffer-copy strong").textContent = "完整缓存原画";
+    status.textContent = `正在预缓存 ${formatFileSize(item.size)}；立即播放会保留当前缓存。`;
+    panel.style.setProperty("--buffer-target", "100%");
   }
-
-  panel.querySelector(".highlight-buffer-copy strong").textContent = "完整缓存原画";
-  status.textContent = `正在缓存 ${formatFileSize(item.size)}，完成后播放不会再消耗本机上行。`;
-  panel.style.setProperty("--buffer-target", "100%");
-  const controller = new AbortController();
-  highlightBufferAbort = controller;
-  const cacheOriginal = async (targetUrl = activePlaybackUrl) => {
-    try {
-      const response = await fetch(targetUrl, { credentials: "same-origin", cache: "no-store", signal: controller.signal });
-      if (!response.ok) throw new Error(`媒体缓存失败（${response.status}）`);
-      const total = Math.max(1, Number(response.headers.get("content-length")) || Number(item.size) || 1);
-      let loaded = 0;
-      let blob;
-      if (response.body?.getReader) {
-        const reader = response.body.getReader();
-        const chunks = [];
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          chunks.push(value);
-          loaded += value.byteLength;
-          const percent = Math.min(100, (loaded / total) * 100);
-          bar.style.width = `${percent.toFixed(2)}%`;
-          status.textContent = `已缓存 ${formatFileSize(loaded)} / ${formatFileSize(total)} · ${percent.toFixed(0)}%`;
-        }
-        blob = new Blob(chunks, { type: response.headers.get("content-type") || "video/mp4" });
-      } else {
-        blob = await response.blob();
-        loaded = blob.size;
-      }
-      if (request !== highlightPlaybackRequest || !video.isConnected) return;
-      highlightBufferAbort = null;
-      highlightPlaybackObjectUrl = URL.createObjectURL(blob);
-      video.src = highlightPlaybackObjectUrl;
-      video.load();
-      bar.style.width = "100%";
-      status.textContent = `原画已完整缓存（${formatFileSize(loaded)}），现在播放不会因本机上行不足而中断。`;
-      bufferedPlay.disabled = false;
-      bufferedPlay.textContent = "开始播放";
-      playNow.hidden = true;
-    } catch (error) {
-      if (error.name === "AbortError") return;
-      const fallback = nextFallback();
-      if (fallback) {
-        status.textContent = `当前节点读取失败，正在切换到 ${fallback.label || "备用线路"}…`;
-        return cacheOriginal(fallback.url);
-      }
-      panel.classList.add("is-error");
-      status.textContent = `${error.message}，已切换为分段播放。`;
-      video.src = activePlaybackUrl;
-      video.load();
-      highlightBufferTimer = setInterval(update, 750);
-      update();
-    }
-  };
-  playNow.addEventListener("click", () => {
-    if (highlightBufferAbort) highlightBufferAbort.abort();
-    highlightBufferAbort = null;
-    video.src = activePlaybackUrl;
-    video.load();
-    highlightBufferTimer = setInterval(update, 750);
-    startPlayback();
-  }, { once: true });
-  cacheOriginal();
+  playNow.addEventListener("click", startPlayback);
+  video.src = activePlaybackUrl;
+  highlightBufferTimer = setInterval(update, 750);
+  video.load();
+  update();
 }
 
 async function openHighlight(index) {
