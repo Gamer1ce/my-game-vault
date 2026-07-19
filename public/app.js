@@ -166,9 +166,10 @@ function render() {
     latest: state.games.map((game) => game.updatedAt || "").sort().at(-1)?.slice(0, 10) || null
   };
   const totalMinutes = Math.max(0, Math.round(Number(summary.totalMinutes || 0)));
-  const totalHours = `${Math.floor(totalMinutes / 60).toLocaleString()} 小时`;
-  const totalRemainder = totalMinutes % 60;
-  const totalPlaytime = `${totalHours}${totalRemainder ? ` ${totalRemainder} 分` : ""}`;
+  const totalPlaytime = `${new Intl.NumberFormat("zh-CN", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1
+  }).format(totalMinutes / 60)} 小时`;
   $("#stats").innerHTML = [
     ["总游戏时长", totalPlaytime],
     ["已记录游戏", `${Number(summary.gameCount || 0)} 款`],
@@ -178,9 +179,9 @@ function render() {
     ["最近同步日期", summary.latest || "—"]
   ].map(([label,value], index) => {
     const primaryValue = index === 0
-      ? `<span class="stat-hours">${escapeHtml(totalHours)}</span>${totalRemainder ? `<span class="stat-minutes">${totalRemainder} 分</span>` : ""}`
+      ? `<span class="stat-hours">${escapeHtml(totalPlaytime)}</span>`
       : escapeHtml(value);
-    const glitchText = index === 0 ? totalHours : value;
+    const glitchText = value;
     return `<div class="stat ${index === 0 ? "stat-primary" : ""}"><small class="stat-label">${escapeHtml(label)}</small><strong class="stat-value" data-text="${escapeHtml(glitchText)}" aria-label="${escapeHtml(value)}">${primaryValue}</strong></div>`;
   }).join("");
 
