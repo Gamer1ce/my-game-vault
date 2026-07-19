@@ -11,6 +11,15 @@ export function highlightCounts(items = []) {
   }, { video: 0, image: 0 });
 }
 
+export function shuffleHighlights(items = [], random = Math.random) {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const target = Math.floor(random() * (index + 1));
+    [shuffled[index], shuffled[target]] = [shuffled[target], shuffled[index]];
+  }
+  return shuffled;
+}
+
 export function filteredHighlightEntries(items = [], type = "video") {
   const activeType = normalizeHighlightType(type);
   return items

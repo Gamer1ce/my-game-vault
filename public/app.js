@@ -5,7 +5,7 @@ import {
   savePreferredPlaybackRoute,
   selectPlaybackCandidate
 } from "./playback-route.js?v=20260717-1";
-import { filteredHighlightEntries, highlightCounts, normalizeHighlightType } from "./highlight-gallery.js?v=20260718-1";
+import { filteredHighlightEntries, highlightCounts, normalizeHighlightType, shuffleHighlights } from "./highlight-gallery.js?v=20260719-1";
 import { createHeroSequence } from "./hero-sequence.js?v=20260718-1";
 
 const now = new Date();
@@ -404,7 +404,7 @@ function renderHighlights() {
 
 async function loadHighlights() {
   const result = await api("/api/highlights");
-  state.highlights = Array.isArray(result.highlights) ? result.highlights : [];
+  state.highlights = shuffleHighlights(Array.isArray(result.highlights) ? result.highlights : []);
   const counts = highlightCounts(state.highlights);
   state.highlightFilter = counts.video > 0 || counts.image === 0 ? "video" : "image";
   state.visibleHighlights = { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { filteredHighlightEntries, highlightCounts, normalizeHighlightType } from "../public/highlight-gallery.js";
+import { filteredHighlightEntries, highlightCounts, normalizeHighlightType, shuffleHighlights } from "../public/highlight-gallery.js";
 
 const highlights = [
   { filename: "clip.webm", type: "video" },
@@ -21,4 +21,13 @@ test("精彩时刻切换类型时保留原始数组索引", () => {
 test("无效精彩时刻类型安全回退到视频", () => {
   assert.equal(normalizeHighlightType("all"), "video");
   assert.equal(normalizeHighlightType("image"), "image");
+});
+
+test("精彩时刻在加载时随机排列且不修改原始清单", () => {
+  const original = [...highlights];
+  const randomValues = [0, 0, 0];
+  const shuffled = shuffleHighlights(highlights, () => randomValues.shift());
+
+  assert.deepEqual(highlights, original);
+  assert.deepEqual(shuffled.map(({ filename }) => filename), ["shot.png", "clip-2.mp4", "notes.txt", "clip.webm"]);
 });
