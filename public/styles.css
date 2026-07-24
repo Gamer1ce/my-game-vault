@@ -120,6 +120,9 @@ nav {
   box-shadow: inset 4px 0 0 var(--pink), inset 0 -3px 0 var(--cyan);
 }
 #guestbookForm.birthday-listening input[name="message"]::placeholder { color: #342b3d; }
+#guestbookForm.birthday-hint-glitch input[name="message"] {
+  animation: birthday-hint-glitch .65s steps(1, end);
+}
 .guestbook-submit-sr, .guestbook-trap {
   position: absolute !important;
   left: -10000px !important;
@@ -1286,6 +1289,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   58% { transform: scale(1.42) rotate(5deg); }
   100% { transform: scale(1) rotate(0); }
 }
+@keyframes birthday-hint-glitch {
+  0%, 100% { transform: translateX(0); filter: none; }
+  14% { transform: translateX(-4px) skewX(-5deg); filter: contrast(1.5); box-shadow: inset 7px 0 0 var(--cyan), inset -5px 0 0 var(--pink); }
+  29% { transform: translateX(5px) skewX(4deg); filter: saturate(1.8); }
+  47% { transform: translateX(-2px); color: var(--cyan); background: #080a0c; }
+  63% { transform: translateX(4px); color: var(--pink); box-shadow: inset 0 4px 0 var(--yellow); }
+  81% { transform: translateX(-1px) skewX(-2deg); filter: contrast(1.25); }
+}
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
@@ -1300,6 +1311,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .danmaku-track { position: static; animation: none !important; transform: none; }
   .danmaku-item { flex: 0 0 auto; }
   .site-like.is-liked .like-symbol { animation: none; }
+  #guestbookForm.birthday-hint-glitch input[name="message"] { animation: none; }
 }
 @media (max-width: 1200px) {
   .stats { grid-template-columns: repeat(3, 1fr); }

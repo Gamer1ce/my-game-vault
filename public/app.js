@@ -8,6 +8,7 @@ import {
 import { filteredHighlightEntries, highlightCounts, normalizeHighlightType, shuffleHighlights } from "./highlight-gallery.js?v=20260719-1";
 import { createHeroSequence } from "./hero-sequence.js?v=20260718-1";
 import { detectFastDownScroll } from "./fast-scroll.js?v=20260719-1";
+import { createBirthdayHintCycle } from "./birthday-hint.js?v=20260724-1";
 
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -260,6 +261,13 @@ function renderBirthdayHint(active) {
   input.title = active ? "08.16：隐藏频道似乎正在等待一句特别的祝福" : "";
 }
 
+const birthdayHintCycle = createBirthdayHintCycle({
+  renderHint: renderBirthdayHint,
+  renderGlitch(active) {
+    $("#guestbookForm").classList.toggle("birthday-hint-glitch", active);
+  }
+});
+
 async function loadGuestbook() {
   const result = await api("/api/guestbook");
   const currentIds = state.guestbook.messages.map((item) => item.id).join(",");
@@ -267,7 +275,7 @@ async function loadGuestbook() {
   const nextIds = nextMessages.map((item) => item.id).join(",");
   state.guestbook.likes = Number(result.likes || 0);
   const localBirthdayPreview = birthdayPreview === "0816" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
-  renderBirthdayHint(result.birthdaySignal === true || localBirthdayPreview);
+  birthdayHintCycle.setActive(result.birthdaySignal === true || localBirthdayPreview);
   renderLikeCount();
   if (currentIds !== nextIds) {
     state.guestbook.messages = nextMessages;
