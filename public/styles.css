@@ -987,6 +987,59 @@ main {
 .feedback-entry p { margin: 9px 0 0; color: #dfe2e5; font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .feedback-inbox-empty { margin: 0; padding: 36px 20px; color: var(--muted); background: #0a0d11; text-align: center; }
 
+.birthday-dialog {
+  width: min(680px, calc(100% - 28px));
+  border-top-color: var(--cyan);
+  background: #080b10;
+  box-shadow: 14px 14px 0 #ff164f99;
+}
+.birthday-dialog-body {
+  position: relative;
+  overflow: hidden;
+  padding: 28px clamp(24px, 6vw, 54px) 26px;
+  background:
+    linear-gradient(90deg, #00f0ff15 1px, transparent 1px),
+    linear-gradient(#00f0ff0e 1px, transparent 1px),
+    #080b10;
+  background-size: 46px 46px;
+}
+.birthday-dialog-body::before {
+  position: absolute;
+  right: -58px;
+  top: -72px;
+  width: 190px;
+  height: 190px;
+  content: "";
+  border: 34px solid #fcee0a;
+  border-radius: 50%;
+  opacity: .12;
+}
+.birthday-protocol { display: flex; align-items: baseline; gap: 10px; color: var(--cyan); font-family: "Rajdhani", monospace; letter-spacing: .12em; }
+.birthday-protocol span { font-size: 11px; font-weight: 700; }
+.birthday-protocol strong { color: var(--yellow); font-size: 21px; }
+.birthday-close { position: absolute; z-index: 2; right: 20px; top: 20px; }
+.birthday-signal { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 12px; margin-top: 34px; color: var(--pink); font-size: 10px; letter-spacing: .12em; }
+.birthday-signal span { height: 1px; background: currentColor; }
+.birthday-kicker { margin: 21px 0 4px; color: var(--cyan); font-family: "Rajdhani", monospace; font-size: 12px; font-weight: 700; letter-spacing: .15em; }
+.birthday-dialog h2 { max-width: none; margin: 0; color: var(--ink); font-size: clamp(38px, 8vw, 62px); line-height: 1.1; letter-spacing: -.04em; }
+.birthday-thanks { max-width: 570px; margin: 20px 0 24px; color: #d3d7dc; font-size: 15px; line-height: 1.9; }
+.cake-ticket {
+  position: relative;
+  padding: 20px 22px 18px;
+  color: #080a0c;
+  background: var(--yellow);
+  clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+}
+.cake-ticket::after { position: absolute; left: 0; right: 0; top: 8px; height: 2px; content: ""; background: #080a0c; opacity: .32; }
+.cake-ticket small { display: block; font-family: "Rajdhani", monospace; font-size: 11px; font-weight: 900; letter-spacing: .14em; }
+.cake-ticket > strong { display: block; margin-top: 8px; font-size: 22px; }
+.cake-ticket p { margin: 8px 0 16px; font-size: 13px; font-weight: 700; line-height: 1.65; }
+.cake-ticket > div { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 12px; border-top: 1px dashed #080a0c99; }
+.cake-ticket span { font-size: 10px; font-weight: 900; letter-spacing: .08em; }
+.cake-ticket code { padding: 4px 6px; color: var(--yellow); background: #080a0c; font-family: "Rajdhani", monospace; font-size: 16px; font-weight: 900; letter-spacing: .08em; }
+.birthday-dialog footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 15px; color: var(--muted); font-size: 10px; }
+.birthday-dialog footer b { color: var(--pink); letter-spacing: .04em; }
+
 dialog {
   width: min(580px, calc(100% - 28px));
   max-height: min(85vh, 850px);
@@ -1295,6 +1348,14 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .highlight-buffer-copy { display: grid; gap: 5px; }
   .highlight-buffer-actions { justify-content: stretch; }
   .highlight-buffer-actions button { flex: 1; }
+  .birthday-dialog-body { padding: 22px 18px 20px; }
+  .birthday-close { right: 14px; top: 14px; }
+  .birthday-protocol { max-width: calc(100% - 48px); flex-wrap: wrap; gap: 3px 8px; }
+  .birthday-signal { margin-top: 28px; }
+  .birthday-dialog h2 { font-size: 38px; }
+  .birthday-thanks { font-size: 13px; line-height: 1.75; }
+  .cake-ticket { padding: 18px 16px 16px; }
+  .cake-ticket > div, .birthday-dialog footer { align-items: flex-start; flex-direction: column; gap: 7px; }
   .calendar-weekdays, .calendar { gap: 3px; }
   .calendar-day, .calendar-spacer { min-height: 52px; }
   .calendar-day { padding: 6px; }

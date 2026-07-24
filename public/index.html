@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260719-1">
+  <link rel="stylesheet" href="/styles.css?v=20260724-1">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
@@ -154,6 +154,24 @@
     </div>
   </dialog>
 
+  <dialog class="birthday-dialog" id="birthdayDialog" aria-labelledby="birthdayDialogTitle">
+    <div class="birthday-dialog-body">
+      <div class="birthday-protocol"><span>HIDDEN PROTOCOL</span><strong>08 // 16</strong></div>
+      <button class="close birthday-close" type="button" data-close-dialog aria-label="关闭生日感谢语">×</button>
+      <div class="birthday-signal" aria-hidden="true"><span></span><b>祝福信号已接收</b><span></span></div>
+      <p class="birthday-kicker">BIRTHDAY SIGNAL CONFIRMED</p>
+      <h2 id="birthdayDialogTitle">生日信号已确认</h2>
+      <p class="birthday-thanks">谢谢你在我抵达这个世界的纪念日，向中枢圣殿投来一束祝福。它已经穿过噪声，被我好好收下。愿下一次相见，我们仍有新世界可奔赴，也有甜味可以分享。</p>
+      <div class="cake-ticket">
+        <small>CAKE CLAIM // SCREENSHOT PASS</small>
+        <strong>这句祝福，我收到了。</strong>
+        <p>请截下这张回执，发送给 Gamer1ce。凭此画面，来找我领取生日蛋糕一块。</p>
+        <div><span>回执编号</span><code id="birthdayTicketCode">—</code></div>
+      </div>
+      <footer><span id="birthdayTicketDate">每年 08.16</span><b>仅限祝福发送者本人使用</b></footer>
+    </div>
+  </dialog>
+
   <dialog id="importDialog">
     <form id="importForm">
       <div class="dialog-head"><h2>导入平台数据</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
@@ -202,6 +220,6 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script type="module" src="/app.js?v=20260719-7"></script>
+  <script type="module" src="/app.js?v=20260724-1"></script>
 </body>
 </html>

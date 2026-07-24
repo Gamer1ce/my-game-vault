@@ -24,6 +24,7 @@ import { createSyncRunner } from "./src/sync-runner.mjs";
 import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
 import { createBaiduStreamService } from "./src/baidu-stream.mjs";
 import { configureOutboundProxy } from "./src/network.mjs";
+import { birthdayTicketFor } from "./src/birthday-easter-egg.mjs";
 import {
   calibratedFinalMinutes,
   matchPlaystationCalibrationRecord,
@@ -447,7 +448,10 @@ app.post("/api/guestbook", (req, res) => {
   if (message.length < 2) return res.status(400).json({ error: "留言至少需要 2 个字符" });
   const saved = insertGuestbookMessage.get(nickname, message);
   trimGuestbookMessages.run();
-  return res.status(201).json({ message: saved });
+  return res.status(201).json({
+    message: saved,
+    birthdayTicket: birthdayTicketFor(message, saved.id)
+  });
 });
 
 app.post("/api/likes", (req, res) => {

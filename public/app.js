@@ -244,6 +244,14 @@ function renderDanmaku() {
   stage.append(fragment);
 }
 
+function showBirthdayThanks(ticket = {}) {
+  const code = String(ticket.code || "").match(/^\d{8}-\d{6}$/)?.[0] || "0816-PREVIEW";
+  const date = String(ticket.date || "").match(/^\d{4}-08-16$/)?.[0] || "每年 08.16";
+  $("#birthdayTicketCode").textContent = code;
+  $("#birthdayTicketDate").textContent = date;
+  $("#birthdayDialog").showModal();
+}
+
 async function loadGuestbook() {
   const result = await api("/api/guestbook");
   const currentIds = state.guestbook.messages.map((item) => item.id).join(",");
@@ -270,6 +278,7 @@ $("#guestbookForm").addEventListener("submit", async (event) => {
       form.elements.message.value = "";
       renderDanmaku();
       toast("留言已接入通讯频道");
+      if (result.birthdayTicket) showBirthdayThanks(result.birthdayTicket);
     }
   } catch (error) {
     toast(error.message);
@@ -277,6 +286,11 @@ $("#guestbookForm").addEventListener("submit", async (event) => {
     button.disabled = false;
   }
 });
+
+const birthdayPreview = new URLSearchParams(window.location.search).get("birthday-preview");
+if (birthdayPreview === "0816" && ["localhost", "127.0.0.1"].includes(window.location.hostname)) {
+  window.setTimeout(() => showBirthdayThanks({ code:"20260816-000001", date:"2026-08-16" }), 0);
+}
 
 $("#guestbookForm").elements.message.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" || event.isComposing) return;
