@@ -23,7 +23,7 @@ function fakeScheduler() {
   };
 }
 
-test("生日线索经过故障切换、显示十五秒并循环恢复", () => {
+test("生日线索经过故障切换、显示十五秒后永久恢复", () => {
   const scheduler = fakeScheduler();
   const states = [];
   const glitches = [];
@@ -45,11 +45,10 @@ test("生日线索经过故障切换、显示十五秒并循环恢复", () => {
   assert.equal(glitches.at(-1), true);
   assert.equal(scheduler.runNext(), 650);
   assert.equal(states.at(-1), false);
-  assert.equal(scheduler.runNext(), 30_000);
-  assert.equal(glitches.at(-1), true);
+  assert.equal(scheduler.pending.length, 0);
 });
 
-test("生日信号关闭时立即恢复普通留言框并取消循环", () => {
+test("生日信号关闭时立即恢复普通留言框并取消播放", () => {
   const scheduler = fakeScheduler();
   const states = [];
   const cycle = createBirthdayHintCycle({

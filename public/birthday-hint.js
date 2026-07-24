@@ -5,8 +5,7 @@ export function createBirthdayHintCycle({
   clearTimer = clearTimeout,
   initialDelay = 5_000,
   glitchDuration = 650,
-  visibleDuration = 15_000,
-  hiddenDuration = 30_000
+  visibleDuration = 15_000
 }) {
   let active = false;
   let timer = null;
@@ -21,17 +20,25 @@ export function createBirthdayHintCycle({
     timer = setTimer(callback, delay);
   };
 
-  const transition = (showHint) => {
+  const showHint = () => {
     if (!active) return;
     renderGlitch(true);
     schedule(() => {
       if (!active) return;
-      renderHint(showHint);
+      renderHint(true);
       renderGlitch(false);
-      schedule(
-        () => transition(!showHint),
-        showHint ? visibleDuration : hiddenDuration
-      );
+      schedule(hideHint, visibleDuration);
+    }, glitchDuration);
+  };
+
+  const hideHint = () => {
+    if (!active) return;
+    renderGlitch(true);
+    schedule(() => {
+      if (!active) return;
+      renderHint(false);
+      renderGlitch(false);
+      cancelTimer();
     }, glitchDuration);
   };
 
@@ -43,7 +50,7 @@ export function createBirthdayHintCycle({
       cancelTimer();
       renderGlitch(false);
       renderHint(false);
-      if (active) schedule(() => transition(true), initialDelay);
+      if (active) schedule(showHint, initialDelay);
     },
     stop() {
       active = false;
