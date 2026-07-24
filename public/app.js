@@ -252,12 +252,22 @@ function showBirthdayThanks(ticket = {}) {
   $("#birthdayDialog").showModal();
 }
 
+function renderBirthdayHint(active) {
+  const form = $("#guestbookForm");
+  const input = form.elements.message;
+  form.classList.toggle("birthday-listening", active);
+  input.placeholder = active ? "今天，试着留下一句只属于寿星的祝福……" : "云中谁寄锦书来？";
+  input.title = active ? "08.16：隐藏频道似乎正在等待一句特别的祝福" : "";
+}
+
 async function loadGuestbook() {
   const result = await api("/api/guestbook");
   const currentIds = state.guestbook.messages.map((item) => item.id).join(",");
   const nextMessages = Array.isArray(result.messages) ? result.messages : [];
   const nextIds = nextMessages.map((item) => item.id).join(",");
   state.guestbook.likes = Number(result.likes || 0);
+  const localBirthdayPreview = birthdayPreview === "0816" && ["localhost", "127.0.0.1"].includes(window.location.hostname);
+  renderBirthdayHint(result.birthdaySignal === true || localBirthdayPreview);
   renderLikeCount();
   if (currentIds !== nextIds) {
     state.guestbook.messages = nextMessages;

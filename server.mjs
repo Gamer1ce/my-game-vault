@@ -24,7 +24,7 @@ import { createSyncRunner } from "./src/sync-runner.mjs";
 import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
 import { createBaiduStreamService } from "./src/baidu-stream.mjs";
 import { configureOutboundProxy } from "./src/network.mjs";
-import { birthdayTicketFor } from "./src/birthday-easter-egg.mjs";
+import { birthdaySignalActive, birthdayTicketFor } from "./src/birthday-easter-egg.mjs";
 import {
   calibratedFinalMinutes,
   matchPlaystationCalibrationRecord,
@@ -431,7 +431,8 @@ const trimFeedbackMessages = db.prepare(`
 app.get("/api/guestbook", (_req, res) => {
   res.json({
     messages: listGuestbookMessages.all(),
-    likes: Number(readLikes.get()?.value || 0)
+    likes: Number(readLikes.get()?.value || 0),
+    birthdaySignal: birthdaySignalActive()
   });
 });
 

@@ -19,9 +19,14 @@ export function containsBirthdayWish(message) {
   return String(message || "").normalize("NFKC").replace(/\s+/g, "").includes("生日快乐");
 }
 
+export function birthdaySignalActive(now = new Date()) {
+  const date = dateParts(now);
+  return Boolean(date && date.month === 8 && date.day === 16);
+}
+
 export function birthdayTicketFor(message, messageId, now = new Date()) {
   const date = dateParts(now);
-  if (!date || date.month !== 8 || date.day !== 16 || !containsBirthdayWish(message)) return null;
+  if (!date || !birthdaySignalActive(now) || !containsBirthdayWish(message)) return null;
   const id = Math.max(0, Math.trunc(Number(messageId) || 0));
   return {
     code: `${date.year}0816-${String(id).padStart(6, "0")}`,

@@ -114,6 +114,12 @@ nav {
 }
 #guestbookForm input[name="message"]::placeholder { color: #565315; opacity: .9; }
 #guestbookForm input[name="message"]:focus { box-shadow: inset 0 -3px 0 var(--cyan); }
+#guestbookForm.birthday-listening input[name="message"] {
+  border-color: var(--cyan);
+  background: #fff68a;
+  box-shadow: inset 4px 0 0 var(--pink), inset 0 -3px 0 var(--cyan);
+}
+#guestbookForm.birthday-listening input[name="message"]::placeholder { color: #342b3d; }
 .guestbook-submit-sr, .guestbook-trap {
   position: absolute !important;
   left: -10000px !important;
