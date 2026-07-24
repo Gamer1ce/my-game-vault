@@ -14,6 +14,11 @@ test("累计字段落后时使用官方逐日历史且不会重复叠加", () =>
   assert.equal(reconciledLifetimeMinutes(5800, 60), 5800);
 });
 
+test("平台接口临时返回零时保留已经确认的累计时长", () => {
+  assert.equal(reconciledLifetimeMinutes(0, 3727), 3727);
+  assert.equal(cumulativeDelta(3727, reconciledLifetimeMinutes(0, 3727)), 0);
+});
+
 test("日历使用上海时区日期并正确跨月", () => {
   assert.equal(shanghaiDate(new Date("2026-07-13T16:30:00Z")), "2026-07-14");
   assert.equal(monthEnd("2026-12"), "2027-01-01");

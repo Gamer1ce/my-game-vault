@@ -744,9 +744,9 @@ function saveSyncedGames(games, source, { recordDelta = true } = {}) {
       const previous = platformId
         ? findGameByPlatformId.get(game.platform, platformId, platformId)
         : findGameByTitle.get(game.platform, game.title);
-      const platformMinutes = game.platform === "nintendo"
-        ? reconciledLifetimeMinutes(game.minutes, previous?.platformMinutes)
-        : game.minutes;
+      // 各平台累计时长只能前进。第三方网关或官方接口偶尔会漏掉
+      // MinutesPlayed 并返回 0，不能让一次不完整响应覆盖已经确认的基线。
+      const platformMinutes = reconciledLifetimeMinutes(game.minutes, previous?.platformMinutes);
       const delta = cumulativeDelta(previous?.platformMinutes, platformMinutes);
       const gameKey = platformId || String(game.title).trim().toLocaleLowerCase("zh-CN");
       if (recordDelta && delta > 0) {
