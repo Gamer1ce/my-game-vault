@@ -21,6 +21,7 @@ import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, 
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
 import { createSyncRunner } from "./src/sync-runner.mjs";
+import { createSyncRequestQueue } from "./src/sync-request.mjs";
 import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
 import { createBaiduStreamService } from "./src/baidu-stream.mjs";
 import { configureOutboundProxy } from "./src/network.mjs";
@@ -50,6 +51,7 @@ const steam = createSteamConnector();
 const metacritic = createMetacriticConnector();
 const port = Number(process.env.PORT || 4173);
 const publicMode = process.env.PUBLIC_MODE === "1" || existsSync(path.join(dataDir, "public-mode"));
+const syncRequestQueue = createSyncRequestQueue(process.env.SYNC_REQUEST_FILE);
 
 function adminAccess() {
   if (!publicMode) return null;
@@ -1022,10 +1024,15 @@ async function syncMetacritic() {
 
 const automaticSyncIntervalMs = 60 * 60 * 1000;
 const defaultAzureBackupCommand = path.join(homedir(), "Library", "Application Support", "GameTimeVault", "sync-azure-backup.zsh");
+const defaultAzureRequestPollCommand = path.join(homedir(), "Library", "Application Support", "GameTimeVault", "poll-azure-sync-request.zsh");
 const azureBackupCommand = process.env.AZURE_BACKUP_SYNC_ENABLED === "0"
   ? null
   : String(process.env.AZURE_BACKUP_SYNC_COMMAND || (process.platform === "darwin" ? defaultAzureBackupCommand : "")).trim() || null;
+const azureRequestPollCommand = process.env.AZURE_SYNC_REQUEST_POLL_ENABLED === "0"
+  ? null
+  : String(process.env.AZURE_SYNC_REQUEST_POLL_COMMAND || (process.platform === "darwin" ? defaultAzureRequestPollCommand : "")).trim() || null;
 let azureBackupProcess = null;
+let azureRequestPollProcess = null;
 let nextAutomaticSyncAt = new Date(Date.now() + automaticSyncIntervalMs).toISOString();
 let lastAutomaticSyncAt = null;
 const gameSyncRunner = createSyncRunner([
@@ -1050,11 +1057,15 @@ app.get("/api/sync/status", (_req, res) => res.json({
   intervalMinutes: automaticSyncIntervalMs / 60_000,
   running: gameSyncRunner.isRunning(),
   lastAutomaticSyncAt,
-  nextAutomaticSyncAt
+  nextAutomaticSyncAt,
+  remote: syncRequestQueue.status()
 }));
 
 app.post("/api/sync/all", async (_req, res, next) => {
   try {
+    if (syncRequestQueue.enabled) {
+      return res.json({ queued: true, request: syncRequestQueue.enqueue() });
+    }
     res.json(await gameSyncRunner.run("manual"));
   } catch (error) {
     next(error);
@@ -1440,9 +1451,27 @@ function runAzureBackupSync(trigger) {
   });
 }
 
+function runAzureRequestPoll(trigger) {
+  if (!azureRequestPollCommand || !existsSync(azureRequestPollCommand) || azureRequestPollProcess) return;
+  const child = spawn(azureRequestPollCommand, [], { stdio: "inherit" });
+  azureRequestPollProcess = child;
+  child.once("error", (error) => console.error("Azure 同步请求轮询启动失败：", error.message));
+  child.once("close", (code, signal) => {
+    azureRequestPollProcess = null;
+    if (code && code !== 0) console.error(`Azure 同步请求轮询退出：${signal || code}（${trigger}）`);
+  });
+}
+
 if (azureBackupCommand && existsSync(azureBackupCommand)) {
   const startupAzureBackup = setTimeout(() => runAzureBackupSync("startup"), 45_000);
   startupAzureBackup.unref();
   const automaticAzureBackup = setInterval(() => runAzureBackupSync("automatic"), automaticSyncIntervalMs);
   automaticAzureBackup.unref();
+}
+
+if (azureRequestPollCommand && existsSync(azureRequestPollCommand)) {
+  const startupAzureRequestPoll = setTimeout(() => runAzureRequestPoll("startup"), 15_000);
+  startupAzureRequestPoll.unref();
+  const automaticAzureRequestPoll = setInterval(() => runAzureRequestPoll("automatic"), 60_000);
+  automaticAzureRequestPoll.unref();
 }

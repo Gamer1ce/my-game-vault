@@ -972,6 +972,21 @@ function returnToBottom() {
 }
 
 $("#backToTopFooter").addEventListener("click", returnToTop);
+async function waitForRemoteSync(requestId, timeoutMs = 12 * 60 * 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 5_000));
+    try {
+      const status = await api("/api/sync/status");
+      const result = status.remote?.result;
+      if (result?.requestId === requestId) return result;
+    } catch {
+      // Azure 替换数据库时会短暂重启，恢复后继续等待即可。
+    }
+  }
+  return null;
+}
+
 $("#syncAllFooter").addEventListener("click", async (event) => {
   const button = event.currentTarget;
   const label = button.textContent;
@@ -979,6 +994,22 @@ $("#syncAllFooter").addEventListener("click", async (event) => {
   button.textContent = "正在同步…";
   try {
     const result = await api("/api/sync/all", { method:"POST" });
+    if (result.queued) {
+      button.textContent = "Mac 正在同步…";
+      toast("同步请求已安全发送到 Mac，完成后会自动刷新");
+      const completed = await waitForRemoteSync(result.request.id);
+      if (!completed) {
+        toast("请求仍在后台处理，稍后刷新页面即可查看");
+        return;
+      }
+      await Promise.all([load(), loadConnections(), loadActivity(), loadRecentActivity()]);
+      const succeeded = completed.results.filter((item) => item.ok).length;
+      const failed = completed.results.length - succeeded;
+      if (!completed.results.length) toast("Mac 暂无已连接的游戏平台");
+      else if (failed) toast(`Mac 已同步 ${succeeded} 个平台，${failed} 个平台失败`);
+      else toast(`Mac 已完成 ${succeeded} 个平台的数据同步`);
+      return;
+    }
     await Promise.all([load(), loadConnections(), loadActivity(), loadRecentActivity()]);
     const succeeded = result.results.filter((item) => item.ok).length;
     const failed = result.results.length - succeeded;

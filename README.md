@@ -270,12 +270,19 @@ Cloudflare 区域还启用了 `API anti-abuse` 限流规则：同一 IP 对 `/ap
 mkdir -p "$HOME/Library/Application Support/GameTimeVault"
 cp scripts/sync-azure-backup.zsh \
   "$HOME/Library/Application Support/GameTimeVault/sync-azure-backup.zsh"
+cp scripts/poll-azure-sync-request.zsh \
+  "$HOME/Library/Application Support/GameTimeVault/poll-azure-sync-request.zsh"
 chmod 700 "$HOME/Library/Application Support/GameTimeVault/sync-azure-backup.zsh"
+chmod 700 "$HOME/Library/Application Support/GameTimeVault/poll-azure-sync-request.zsh"
 ```
 
 随后重启“中枢圣殿”后台服务即可。同步任务作为网站进程的子进程运行，因此沿用网站已经获得的“文稿”和外置硬盘读取权限，避免额外 LaunchAgent 被 macOS 隐私保护拒绝。需要暂时停用时，给网站进程设置 `AZURE_BACKUP_SYNC_ENABLED=0`，或移走 Application Support 中的同步脚本。
 
 Mac 端网站服务会在启动约 45 秒后执行一次 Azure 同步，此后每 60 分钟执行一次；若上一次媒体传输尚未结束，新一轮会自动跳过。每轮会同步 Git 跟踪的公开源码与 SQLite 一致性快照，只有 `package-lock.json` 发生变化时才在 Azure 重新安装生产依赖；平台凭据、本机配置、Git 历史和忽略文件不会上传。首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。媒体目录采用镜像模式：新增和修改会上传，删除或重命名会在下一次成功同步结束时清理 Azure 上的旧文件；移动硬盘未挂载时不会执行媒体同步或远端删除。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
+
+主域名运行在 Azure 时，“立即同步游戏数据”不会要求把平台凭据上传到虚拟机。管理员点击按钮后，Azure 只保存一个权限为 `600` 的随机请求编号；Mac 后台每分钟通过现有 SSH 密钥主动检查请求，在本机调用平台连接器，随后执行一次仅含数据库的即时镜像并写回成功/失败摘要。整个流程不需要家庭公网 IPv6，也不会给 Mac 新增公网入站端口。Azure 仍然只保存展示数据库，`.credential-key` 与 `credentials.enc` 始终留在 Mac。
+
+Azure 的 systemd 服务需要安装仓库中的 `deploy/azure/game-vault-sync-request.conf` 作为 `game-vault.service.d` drop-in，并执行 `systemctl daemon-reload` 与 `systemctl restart game-vault`。该配置只指定请求文件位置，不含账号、密码或平台令牌。
 
 ### PlayStation
 

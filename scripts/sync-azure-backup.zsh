@@ -11,7 +11,7 @@ log_prefix="$(date '+%Y-%m-%d %H:%M:%S') Azure backup"
 
 if ! mkdir "$lock_dir" 2>/dev/null; then
   echo "$log_prefix skipped: another sync is running"
-  exit 0
+  exit "${AZURE_BACKUP_LOCK_BUSY_EXIT:-0}"
 fi
 
 snapshot_dir=$(mktemp -d)
@@ -56,7 +56,9 @@ rsync -az -e "ssh -i '$ssh_key' -o BatchMode=yes" \
 ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
   "sudo systemctl stop game-vault; install -m 600 '$remote_root/incoming/games.db.new' '$remote_root/data/games.db'; unlink '$remote_root/data/games.db-wal' 2>/dev/null || true; unlink '$remote_root/data/games.db-shm' 2>/dev/null || true; sudo systemctl start game-vault"
 
-if [[ -d "$media_dir" ]]; then
+if [[ "${AZURE_BACKUP_SKIP_MEDIA:-0}" == "1" ]]; then
+  echo "$log_prefix media skipped: data-only request"
+elif [[ -d "$media_dir" ]]; then
   rsync -az --delete-delay --partial --partial-dir=.rsync-partial \
     --exclude='.DS_Store' \
     --exclude='.Spotlight-V100/' \
