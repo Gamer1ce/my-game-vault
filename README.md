@@ -43,7 +43,28 @@ npm start
 
 ### macOS 一键启动
 
-双击项目根目录中的 `启动游迹.command` 即可。它会在首次运行时安装依赖、启动服务并自动打开浏览器；终端窗口保持打开时，网站会继续运行和自动同步。
+双击项目根目录中的 `启动游迹.command` 即可。它会检查并按需启动 Docker Desktop、构建容器、启动服务并自动打开浏览器。网站在容器中后台运行，关闭该终端窗口不会停止服务。
+
+### Docker 运行（推荐）
+
+Mac 安装并启动 Docker Desktop 后，在项目目录执行：
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+网站仍从 `http://127.0.0.1:4173` 访问。Compose 会把 `data/` 持久化挂载到 `/data`，把 `/Volumes/游戏视频` 只读挂载到 `/media/highlights`，并将 Azure SSH 私钥与 `known_hosts` 分别只读挂载；镜像本身不包含数据库、管理员密码、平台授权或媒体文件。`data/remote-media.env` 与 `data/baidu-media.env` 由容器启动脚本在运行时读取，不会烘焙进镜像层或写入 Compose 环境配置。
+
+如果 Clash Verge 使用本机 `7897` 端口，容器会通过 `host.docker.internal:7897` 访问代理。停止、查看日志和更新分别使用：
+
+```bash
+docker compose down
+docker compose logs -f game-vault
+docker compose up -d --build
+```
+
+容器设置为 `restart: unless-stopped`；Mac 重启后仍需先启动 Docker Desktop。迁移旧版 LaunchAgent 前应先用数据库快照在其他端口验证容器，确认游戏统计、平台连接、精彩时刻和真实同步均正常，再执行 `launchctl disable`。Docker 不会让关机后的 Mac 继续同步。
 
 如果 macOS 阻止首次打开，请右键该文件选择“打开”，确认一次后即可正常双击。也可以把它拖到桌面或 Dock 旁边方便使用。
 
@@ -233,7 +254,7 @@ npm start
 
 ## Azure 只读备用站
 
-项目提供一套 Azure VM 备用部署方案。Mac 仍是唯一的平台授权和同步来源；Azure 只接收 SQLite 一致性快照、网页源码和精彩时刻媒体，不上传 `.credential-key`、`credentials.enc`、百度网盘令牌或其他平台凭据。这样即使家庭网络或隧道临时不可用，朋友仍可从备用域名查看最近一次镜像。
+项目提供一套 Azure VM 备用部署方案。Mac 仍是唯一的平台授权和同步来源；Azure 的定时镜像只接收 SQLite 一致性快照和精彩时刻媒体，程序更新则通过单独构建的 Docker 镜像发布。它不会上传 `.credential-key`、`credentials.enc`、百度网盘令牌或其他平台凭据。这样即使家庭网络或隧道临时不可用，朋友仍可从备用域名查看最近一次镜像。
 
 仓库中的相关文件：
 
@@ -249,6 +270,24 @@ npm start
 ### Azure 公网防护
 
 当前备用站不再把 Azure 的 Web 端口直接暴露给互联网。`cloudflared` 在虚拟机内建立只出站的 Cloudflare Tunnel，`azure.gamer1ce.top` 通过隧道路由到 `http://127.0.0.1:4173`；Azure UFW 仅保留密钥 SSH，80、443 和 4173 的公网直连都由默认入站拒绝规则拦截。这样访客只能经过 Cloudflare 访问，源站 IPv4 即使被发现也不能绕过边缘防护。
+
+Azure 的 Docker 版本使用 `compose.azure.yaml`：应用端口只绑定宿主机 `127.0.0.1:4173`，`cloudflared` 使用 host network 继续访问这个回环端口；数据库和媒体仍分别保存在 `/srv/game-vault/data` 与 `/srv/game-vault/media`。Cloudflare Tunnel Token 只读挂载自 `/etc/cloudflared/token`，不会复制进镜像。Ubuntu 应按照 [Docker 官方 APT 仓库说明](https://docs.docker.com/engine/install/ubuntu/)安装 Engine 与 Compose 插件。
+
+这台小规格 Azure VM 不应在本机执行 `docker compose build`，否则 npm 安装可能耗尽内存并令隧道暂时掉线。源码更新时，在 Mac 上构建 `linux/amd64` 镜像并传入 Azure：
+
+```bash
+docker buildx build --platform linux/amd64 \
+  -t gamer1ce/game-time-vault:azure --load .
+docker save gamer1ce/game-time-vault:azure | gzip -1 | \
+  ssh -i ~/.ssh/game-vault-azure_key.pem azureuser@74.248.153.120 \
+  'sudo docker load'
+rsync -az compose.azure.yaml \
+  azureuser@74.248.153.120:/srv/game-vault/app/
+ssh -i ~/.ssh/game-vault-azure_key.pem azureuser@74.248.153.120 \
+  'cd /srv/game-vault/app && sudo docker compose -f compose.azure.yaml up -d --no-build --force-recreate game-vault'
+```
+
+首次切换前不要停止原 systemd 服务；先完成镜像构建和传输，再短暂停止 `game-vault` 与 `cloudflared`，启动 Compose 并验证公网域名。确认成功后才禁用旧服务。后续每小时同步脚本只替换数据库并使用 `--no-build` 重启应用容器，不会再次占用 Azure 内存构建程序。Docker 端口即使绑定到回环地址，也应继续保留 UFW 与 Cloudflare Tunnel 防护。
 
 为隧道创建 DNS 记录时，传入 Cloudflare Tunnel ID；脚本会把现有 A 记录改成受代理的 `cfargotunnel.com` CNAME：
 
@@ -276,9 +315,9 @@ chmod 700 "$HOME/Library/Application Support/GameTimeVault/sync-azure-backup.zsh
 chmod 700 "$HOME/Library/Application Support/GameTimeVault/poll-azure-sync-request.zsh"
 ```
 
-随后重启“中枢圣殿”后台服务即可。同步任务作为网站进程的子进程运行，因此沿用网站已经获得的“文稿”和外置硬盘读取权限，避免额外 LaunchAgent 被 macOS 隐私保护拒绝。需要暂时停用时，给网站进程设置 `AZURE_BACKUP_SYNC_ENABLED=0`，或移走 Application Support 中的同步脚本。
+上面的复制步骤只用于旧版非 Docker 服务。Docker 版已经把这两个仓库脚本直接装进镜像，并挂载 Azure SSH 密钥、`known_hosts`、数据库目录和只读媒体目录；无需再复制到 Application Support。同步任务作为网站容器的子进程运行。需要暂时停用时，给网站容器设置 `AZURE_BACKUP_SYNC_ENABLED=0`。
 
-Mac 端网站服务会在启动约 45 秒后执行一次 Azure 同步，此后每 60 分钟执行一次；若上一次媒体传输尚未结束，新一轮会自动跳过。每轮会同步 Git 跟踪的公开源码与 SQLite 一致性快照，只有 `package-lock.json` 发生变化时才在 Azure 重新安装生产依赖；平台凭据、本机配置、Git 历史和忽略文件不会上传。首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。媒体目录采用镜像模式：新增和修改会上传，删除或重命名会在下一次成功同步结束时清理 Azure 上的旧文件；移动硬盘未挂载时不会执行媒体同步或远端删除。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
+Mac 端网站服务会在启动约 45 秒后执行一次 Azure 同步，此后每 60 分钟执行一次；若上一次媒体传输尚未结束，新一轮会自动跳过。Docker 模式的每轮任务只同步 SQLite 一致性快照和精彩时刻，不会在 Azure 构建程序；源码更新通过前述独立镜像发布流程完成。平台凭据、本机配置、Git 历史和忽略文件不会上传。首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。媒体目录采用镜像模式：新增和修改会上传，删除或重命名会在下一次成功同步结束时清理 Azure 上的旧文件；移动硬盘未挂载时不会执行媒体同步或远端删除。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
 
 主域名运行在 Azure 时，“立即同步游戏数据”不会要求把平台凭据上传到虚拟机。管理员点击按钮后，Azure 只保存一个权限为 `600` 的随机请求编号；Mac 后台每分钟通过现有 SSH 密钥主动检查请求，在本机调用平台连接器，随后执行一次仅含数据库的即时镜像并写回成功/失败摘要。整个流程不需要家庭公网 IPv6，也不会给 Mac 新增公网入站端口。Azure 仍然只保存展示数据库，`.credential-key` 与 `credentials.enc` 始终留在 Mac。
 

@@ -1,0 +1,53 @@
+name: game-time-vault-azure
+
+services:
+  game-vault:
+    build:
+      context: .
+    image: gamer1ce/game-time-vault:azure
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4173:4173"
+    environment:
+      PORT: "4173"
+      DATA_DIR: /data
+      HIGHLIGHTS_DIR: /media/highlights
+      PUBLIC_MODE: "1"
+      TRUST_PROXY: "1"
+      PLATFORM_SYNC_ENABLED: "0"
+      AZURE_BACKUP_SYNC_ENABLED: "0"
+      AZURE_SYNC_REQUEST_POLL_ENABLED: "0"
+      SYNC_REQUEST_FILE: /data/sync-request.json
+    volumes:
+      - /srv/game-vault/data:/data
+      - /srv/game-vault/media:/media/highlights:ro
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4173/api/sync/status"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    stop_grace_period: 20s
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    user: "0:0"
+    network_mode: host
+    restart: unless-stopped
+    command:
+      - tunnel
+      - --no-autoupdate
+      - run
+      - --token-file
+      - /run/secrets/cloudflared-token
+    volumes:
+      - /etc/cloudflared/token:/run/secrets/cloudflared-token:ro
+    depends_on:
+      game-vault:
+        condition: service_healthy
+    read_only: true
+    security_opt:
+      - no-new-privileges:true

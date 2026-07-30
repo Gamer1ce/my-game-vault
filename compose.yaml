@@ -1,0 +1,53 @@
+name: game-time-vault
+
+services:
+  game-vault:
+    build:
+      context: .
+    image: gamer1ce/game-time-vault:local
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${GAME_VAULT_PORT:-4173}:4173"
+    environment:
+      PORT: "4173"
+      DATA_DIR: /data
+      HIGHLIGHTS_DIR: /media/highlights
+      PUBLIC_MODE: "1"
+      TRUST_PROXY: "1"
+      PLATFORM_SYNC_ENABLED: "${PLATFORM_SYNC_ENABLED:-1}"
+      HTTP_PROXY: "${GAME_VAULT_HTTP_PROXY:-http://host.docker.internal:7897}"
+      HTTPS_PROXY: "${GAME_VAULT_HTTPS_PROXY:-http://host.docker.internal:7897}"
+      NO_PROXY: "127.0.0.1,localhost,game-vault,192.168.0.0/16,10.0.0.0/8"
+      AZURE_BACKUP_PROJECT_DIR: /app
+      AZURE_BACKUP_KEY_PATH: /run/secrets/azure-key.pem
+      AZURE_BACKUP_MEDIA_DIR: /media/highlights
+      AZURE_BACKUP_DEPLOYMENT_MODE: docker
+      AZURE_BACKUP_SYNC_ENABLED: "${AZURE_BACKUP_SYNC_ENABLED:-1}"
+      AZURE_BACKUP_SYNC_COMMAND: /app/scripts/sync-azure-backup.zsh
+      AZURE_SYNC_REQUEST_POLL_ENABLED: "${AZURE_SYNC_REQUEST_POLL_ENABLED:-1}"
+      AZURE_SYNC_REQUEST_POLL_COMMAND: /app/scripts/poll-azure-sync-request.zsh
+      AZURE_SYNC_REQUEST_STATE_DIR: /data/runtime
+      GAME_VAULT_ADMIN_FILE: /data/admin-access.json
+      GAME_VAULT_LOCAL_ORIGIN: http://127.0.0.1:4173
+    volumes:
+      - type: bind
+        source: "${GAME_VAULT_DATA_DIR:-./data}"
+        target: /data
+      - type: bind
+        source: "${GAME_VAULT_MEDIA_DIR:-/Volumes/游戏视频}"
+        target: /media/highlights
+        read_only: true
+      - type: bind
+        source: "${AZURE_BACKUP_KEY_PATH:-/Users/gamer1ce/.ssh/game-vault-azure_key.pem}"
+        target: /run/secrets/azure-key.pem
+        read_only: true
+      - type: bind
+        source: "${SSH_KNOWN_HOSTS_PATH:-/Users/gamer1ce/.ssh/known_hosts}"
+        target: /home/node/.ssh/known_hosts
+        read_only: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s

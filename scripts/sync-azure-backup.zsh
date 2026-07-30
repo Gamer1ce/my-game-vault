@@ -2,9 +2,11 @@
 set -euo pipefail
 
 project_dir=${AZURE_BACKUP_PROJECT_DIR:-/Users/gamer1ce/Documents/游戏时长记录}
+database_file=${GAME_VAULT_DATABASE_FILE:-${DATA_DIR:-$project_dir/data}/games.db}
 ssh_key=${AZURE_BACKUP_KEY_PATH:-/Users/gamer1ce/.ssh/game-vault-azure_key.pem}
 remote_host=${AZURE_BACKUP_REMOTE:-azureuser@74.248.153.120}
 remote_root=${AZURE_BACKUP_ROOT:-/srv/game-vault}
+remote_deployment_mode=${AZURE_BACKUP_DEPLOYMENT_MODE:-systemd}
 media_dir=${AZURE_BACKUP_MEDIA_DIR:-/Volumes/游戏视频}
 lock_dir=/tmp/com.gamer1ce.game-time-vault.azure-backup.lock
 log_prefix="$(date '+%Y-%m-%d %H:%M:%S') Azure backup"
@@ -27,40 +29,58 @@ if [[ ! -r "$ssh_key" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$project_dir/data/games.db" ]]; then
+if [[ ! -f "$database_file" ]]; then
   echo "$log_prefix failed: games.db is unavailable" >&2
   exit 1
 fi
 
-sqlite3 "$project_dir/data/games.db" ".backup '$snapshot_dir/games.db'"
+sqlite3 "$database_file" ".backup '$snapshot_dir/games.db'"
 
 ssh -i "$ssh_key" -o BatchMode=yes -o ConnectTimeout=20 "$remote_host" \
   "mkdir -p '$remote_root/incoming' '$remote_root/data' '$remote_root/media'"
 
-local_lock_hash=$(shasum -a 256 "$project_dir/package-lock.json" | awk '{print $1}')
-remote_lock_hash=$(ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
-  "sha256sum '$remote_root/app/package-lock.json' 2>/dev/null | awk '{print \$1}'" || true)
+if [[ "$remote_deployment_mode" != "docker" ]]; then
+  local_lock_hash=$(shasum -a 256 "$project_dir/package-lock.json" | awk '{print $1}')
+  remote_lock_hash=$(ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
+    "sha256sum '$remote_root/app/package-lock.json' 2>/dev/null | awk '{print \$1}'" || true)
 
-git -C "$project_dir" ls-files -z | rsync -az --from0 --files-from=- \
-  -e "ssh -i '$ssh_key' -o BatchMode=yes" \
-  "$project_dir/" "$remote_host:$remote_root/app/"
+  if command -v git >/dev/null 2>&1 && git -C "$project_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$project_dir" ls-files -z | rsync -az --from0 --files-from=- \
+      -e "ssh -i '$ssh_key' -o BatchMode=yes" \
+      "$project_dir/" "$remote_host:$remote_root/app/"
+  else
+    rsync -az --delete \
+      --exclude='.git/' \
+      --exclude='node_modules/' \
+      --exclude='data/' \
+      --exclude='.DS_Store' \
+      -e "ssh -i '$ssh_key' -o BatchMode=yes" \
+      "$project_dir/" "$remote_host:$remote_root/app/"
+  fi
 
-if [[ "$local_lock_hash" != "$remote_lock_hash" ]]; then
-  ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
-    "cd '$remote_root/app' && npm ci --omit=dev"
+  if [[ "$local_lock_hash" != "$remote_lock_hash" ]]; then
+    ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
+      "cd '$remote_root/app' && npm ci --omit=dev"
+  fi
 fi
 
 rsync -az -e "ssh -i '$ssh_key' -o BatchMode=yes" \
   "$snapshot_dir/games.db" "$remote_host:$remote_root/incoming/games.db.new"
 
-ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
-  "sudo systemctl stop game-vault; install -m 600 '$remote_root/incoming/games.db.new' '$remote_root/data/games.db'; unlink '$remote_root/data/games.db-wal' 2>/dev/null || true; unlink '$remote_root/data/games.db-shm' 2>/dev/null || true; sudo systemctl start game-vault"
+if [[ "$remote_deployment_mode" == "docker" ]]; then
+  ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
+    "cd '$remote_root/app' && sudo docker compose -f compose.azure.yaml stop game-vault; install -m 600 '$remote_root/incoming/games.db.new' '$remote_root/data/games.db'; unlink '$remote_root/data/games.db-wal' 2>/dev/null || true; unlink '$remote_root/data/games.db-shm' 2>/dev/null || true; cd '$remote_root/app' && sudo docker compose -f compose.azure.yaml up -d --no-build game-vault cloudflared"
+else
+  ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
+    "sudo systemctl stop game-vault; install -m 600 '$remote_root/incoming/games.db.new' '$remote_root/data/games.db'; unlink '$remote_root/data/games.db-wal' 2>/dev/null || true; unlink '$remote_root/data/games.db-shm' 2>/dev/null || true; sudo systemctl start game-vault"
+fi
 
 if [[ "${AZURE_BACKUP_SKIP_MEDIA:-0}" == "1" ]]; then
   echo "$log_prefix media skipped: data-only request"
 elif [[ -d "$media_dir" ]]; then
   rsync -az --delete-delay --partial --partial-dir=.rsync-partial \
     --exclude='.DS_Store' \
+    --exclude='._*' \
     --exclude='.Spotlight-V100/' \
     --exclude='.Trashes/' \
     --exclude='.fseventsd/' \

@@ -51,6 +51,14 @@ if [[ ! "$request_id" =~ '^[A-Za-z0-9-]{8,80}$' ]]; then
   exit 1
 fi
 
+completed_request_id=$(ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
+  "if [ -f '$remote_result_file' ]; then node -e 'const fs=require(\"fs\");const value=JSON.parse(fs.readFileSync(process.argv[1],\"utf8\"));process.stdout.write(String(value.requestId||\"\"))' '$remote_result_file'; fi")
+if [[ "$completed_request_id" == "$request_id" ]]; then
+  ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" \
+    "node -e 'const fs=require(\"fs\");const file=process.argv[1];const expected=process.argv[2];if(fs.existsSync(file)){const value=JSON.parse(fs.readFileSync(file,\"utf8\"));if(String(value.id||\"\")===expected)fs.unlinkSync(file)}' '$remote_request_file' '$request_id'"
+  exit 0
+fi
+
 pending_id=""
 if [[ -r "$pending_file" ]]; then
   pending_id=$(jq -r '.requestId // ""' "$pending_file" 2>/dev/null || true)
@@ -87,6 +95,11 @@ if [[ $backup_status -ne 0 ]]; then
     exit 0
   fi
   exit $backup_status
+fi
+
+if [[ ! -r "$pending_file" ]]; then
+  echo "Azure 同步请求 $request_id 已由另一轮任务完成"
+  exit 0
 fi
 
 scp -q -i "$ssh_key" -o BatchMode=yes "$pending_file" "$remote_host:${remote_result_file}.new"

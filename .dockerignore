@@ -1,0 +1,9 @@
+.git
+.gitignore
+.DS_Store
+node_modules
+data
+cloudflare/baidu-media-proxy/.dev.vars
+aliyun-esa/baidu-media-proxy/.env
+.wrangler
+npm-debug.log*

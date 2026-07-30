@@ -51,6 +51,7 @@ const steam = createSteamConnector();
 const metacritic = createMetacriticConnector();
 const port = Number(process.env.PORT || 4173);
 const publicMode = process.env.PUBLIC_MODE === "1" || existsSync(path.join(dataDir, "public-mode"));
+const platformSyncEnabled = process.env.PLATFORM_SYNC_ENABLED !== "0";
 const syncRequestQueue = createSyncRequestQueue(process.env.SYNC_REQUEST_FILE);
 
 function adminAccess() {
@@ -1033,7 +1034,7 @@ const azureRequestPollCommand = process.env.AZURE_SYNC_REQUEST_POLL_ENABLED === 
   : String(process.env.AZURE_SYNC_REQUEST_POLL_COMMAND || (process.platform === "darwin" ? defaultAzureRequestPollCommand : "")).trim() || null;
 let azureBackupProcess = null;
 let azureRequestPollProcess = null;
-let nextAutomaticSyncAt = new Date(Date.now() + automaticSyncIntervalMs).toISOString();
+let nextAutomaticSyncAt = platformSyncEnabled ? new Date(Date.now() + automaticSyncIntervalMs).toISOString() : null;
 let lastAutomaticSyncAt = null;
 const gameSyncRunner = createSyncRunner([
   { id: "playstation", sync: syncPlaystation },
@@ -1054,6 +1055,7 @@ const gameSyncRunner = createSyncRunner([
 app.get("/api/games", (_req, res) => res.json({ games: listGames.all(), stats: dashboardStats() }));
 
 app.get("/api/sync/status", (_req, res) => res.json({
+  automaticEnabled: platformSyncEnabled,
   intervalMinutes: automaticSyncIntervalMs / 60_000,
   running: gameSyncRunner.isRunning(),
   lastAutomaticSyncAt,
@@ -1426,8 +1428,6 @@ async function runScheduledSync(trigger) {
   }
 }
 
-const startupSync = setTimeout(() => { runScheduledSync("startup"); }, 2_000);
-startupSync.unref();
 function scheduleAutomaticSync() {
   nextAutomaticSyncAt = new Date(Date.now() + automaticSyncIntervalMs).toISOString();
   const automaticSync = setTimeout(async () => {
@@ -1436,7 +1436,11 @@ function scheduleAutomaticSync() {
   }, automaticSyncIntervalMs);
   automaticSync.unref();
 }
-scheduleAutomaticSync();
+if (platformSyncEnabled) {
+  const startupSync = setTimeout(() => { runScheduledSync("startup"); }, 2_000);
+  startupSync.unref();
+  scheduleAutomaticSync();
+}
 
 function runAzureBackupSync(trigger) {
   if (!azureBackupCommand || !existsSync(azureBackupCommand) || azureBackupProcess) return;

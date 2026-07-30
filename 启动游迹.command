@@ -5,17 +5,6 @@ cd "${0:A:h}"
 
 URL="http://localhost:4173"
 
-if [[ -f data/remote-media.env ]]; then
-  set -a
-  source data/remote-media.env
-  set +a
-fi
-if [[ -f data/baidu-media.env ]]; then
-  set -a
-  source data/baidu-media.env
-  set +a
-fi
-
 if [[ -f data/highlights-path.txt ]]; then
   HIGHLIGHTS_PATH="$(head -n 1 data/highlights-path.txt)"
   if [[ -n "$HIGHLIGHTS_PATH" && ! -d "$HIGHLIGHTS_PATH" ]]; then
@@ -24,8 +13,8 @@ if [[ -f data/highlights-path.txt ]]; then
   fi
 fi
 
-if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
-  echo "没有找到 Node.js。请先安装 Node.js 22.5 或更高版本。"
+if ! command -v docker >/dev/null 2>&1; then
+  echo "没有找到 Docker。请先安装并启动 Docker Desktop。"
   read "?按回车键关闭…"
   exit 1
 fi
@@ -35,33 +24,38 @@ if curl -fsS "$URL/api/games" >/dev/null 2>&1; then
   exit 0
 fi
 
-if [[ ! -d node_modules ]]; then
-  echo "首次启动，正在安装依赖…"
-  npm install || {
-    echo "依赖安装失败，请检查网络后重试。"
-    read "?按回车键关闭…"
-    exit 1
-  }
+if ! docker info >/dev/null 2>&1; then
+  echo "正在启动 Docker Desktop…"
+  open -a Docker
+  for _ in {1..120}; do
+    docker info >/dev/null 2>&1 && break
+    sleep 1
+  done
 fi
 
-echo "正在启动 Gamer1ce // 游迹…"
-npm start &
-SERVER_PID=$!
-trap 'kill "$SERVER_PID" 2>/dev/null' EXIT INT TERM
+if ! docker info >/dev/null 2>&1; then
+  echo "Docker Desktop 未能在两分钟内就绪，请打开 Docker Desktop 后重试。"
+  read "?按回车键关闭…"
+  exit 1
+fi
 
-for _ in {1..40}; do
+echo "正在启动 Gamer1ce // 中枢圣殿 Docker 服务…"
+docker compose up -d --build || {
+  echo "容器启动失败，请检查上方错误信息。"
+  read "?按回车键关闭…"
+  exit 1
+}
+
+for _ in {1..60}; do
   if curl -fsS "$URL/api/games" >/dev/null 2>&1; then
     open "$URL"
-    echo "网站已打开。保持此窗口运行即可继续自动同步；关闭窗口会停止网站。"
-    if [[ -n "${MEDIA_S3_BUCKET:-}" ]]; then
-      echo "云端原画播放已启用；朋友播放已上传视频时不会占用本机隧道带宽。"
-    fi
-    wait "$SERVER_PID"
-    exit $?
+    echo "网站已打开。容器会在后台继续运行，关闭此窗口不会停止网站。"
+    echo "需要停止时，在项目目录执行：docker compose down"
+    exit 0
   fi
-  sleep 0.25
+  sleep 1
 done
 
-echo "网站未能在 10 秒内启动，请检查上方错误信息。"
+echo "网站未能在 60 秒内启动，请执行 docker compose logs --tail=100 game-vault 查看原因。"
 read "?按回车键关闭…"
 exit 1
