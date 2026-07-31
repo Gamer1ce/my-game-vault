@@ -22,7 +22,7 @@
 - **可解释的游戏日历**：根据两次同步间的累计时长差生成每日分钟数；只有最后游玩日期、没有分钟数时会明确标为“当日时长未知”，不会伪造历史。
 - **近两周时长脉冲**：连续展示最近 14 天的分平台堆叠时长，确切记录与同步检测值使用同一套日历口径，并用“≈”标出包含累计差值的日期。
 - **自己的精彩时刻频道**：把截图和录屏放进本地媒体目录，网站会自动生成只读画廊；可将原始视频同步到S3兼容对象存储，让朋友播放原画时不再占用家庭隧道带宽。
-- **轻量的留言与点赞**：朋友可以在首屏输入一句短留言并按回车发送，文字会沿顶部窄轨循环飘过；独立的爱心按钮允许重复点击并持续累计。
+- **轻量的留言与点赞**：朋友可以在首屏输入一句短留言并按回车发送，文字会沿顶部窄轨循环飘过；独立的爱心按钮允许重复点击并持续累计。留言、点赞与反馈保存在独立社区数据库中，不会被游戏数据镜像覆盖。
 - **一年一度的生日彩蛋**：服务器按上海时区在每年 8 月 16 日开启隐藏协议；成功发送包含“生日快乐”的留言后，会签发带独立编号的蛋糕领取回执。
 - **评分多级补全**：依次核对 RAWG、RAWG 游戏详情、Steam 商店官方 Metacritic 元数据与 Metacritic 公开游戏页；内置 Nintendo 日文/中文标题和 Switch 2 Edition 的规范名匹配，结果缓存 30 天。
 - **本地隐私设计**：SQLite 数据和平台凭据只保存在本机；凭据采用 AES-256-GCM 加密，账号密码和验证码不会写入数据库。
@@ -39,7 +39,7 @@ npm install
 npm start
 ```
 
-打开 <http://localhost:4173>。首次启动会自动创建 `data/games.db` 和本机凭据文件。
+打开 <http://localhost:4173>。首次启动会自动创建 `data/games.db`、`data/community.db` 和本机凭据文件；旧版本保存在游戏库里的留言、点赞与反馈会自动迁移一次。
 
 ### macOS 一键启动
 
@@ -262,7 +262,7 @@ npm start
 - `deploy/azure/game-vault.service`：以普通用户运行网站，仅允许应用写入数据目录。
 - `deploy/azure/Caddyfile`：为 `azure.gamer1ce.top` 自动申请 HTTPS 并反向代理到 Node.js。
 - `scripts/cloudflare-azure-dns.mjs`：使用已保存在 macOS 钥匙串中的 Cloudflare DNS Token 创建或更新备用域名，不把 Token 写进源码。
-- `scripts/sync-azure-backup.zsh`：通过 SQLite `.backup` 生成一致性快照，再用 SSH/rsync 同步数据库；媒体采用镜像同步，移动硬盘中删除或重命名的内容会在下一次成功同步后反映到 Azure。
+- `scripts/sync-azure-backup.zsh`：通过 SQLite `.backup` 生成一致性游戏数据快照，再用 SSH/rsync 同步；Azure 自己的 `community.db` 不参与覆盖。媒体采用镜像同步，移动硬盘中删除或重命名的内容会在下一次成功同步后反映到 Azure。
 - `server.mjs`：Mac 后台网站检测到已安装同步脚本后，在启动 45 秒后执行一次，此后每小时执行一次；与平台自动同步使用同一个小时节奏。
 
 默认服务器地址、SSH 私钥路径、媒体目录和域名是本项目所有者的部署值。制作自己的版本时，应通过 `AZURE_BACKUP_REMOTE`、`AZURE_BACKUP_KEY_PATH`、`AZURE_BACKUP_MEDIA_DIR`、`AZURE_BACKUP_HOST` 与 `AZURE_BACKUP_IP` 覆盖，不要把私钥提交到 Git。
@@ -317,7 +317,7 @@ chmod 700 "$HOME/Library/Application Support/GameTimeVault/poll-azure-sync-reque
 
 上面的复制步骤只用于旧版非 Docker 服务。Docker 版已经把这两个仓库脚本直接装进镜像，并挂载 Azure SSH 密钥、`known_hosts`、数据库目录和只读媒体目录；无需再复制到 Application Support。同步任务作为网站容器的子进程运行。需要暂时停用时，给网站容器设置 `AZURE_BACKUP_SYNC_ENABLED=0`。
 
-Mac 端网站服务会在启动约 45 秒后执行一次 Azure 同步，此后每 60 分钟执行一次；若上一次媒体传输尚未结束，新一轮会自动跳过。Docker 模式的每轮任务只同步 SQLite 一致性快照和精彩时刻，不会在 Azure 构建程序；源码更新通过前述独立镜像发布流程完成。平台凭据、本机配置、Git 历史和忽略文件不会上传。首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。媒体目录采用镜像模式：新增和修改会上传，删除或重命名会在下一次成功同步结束时清理 Azure 上的旧文件；移动硬盘未挂载时不会执行媒体同步或远端删除。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
+Mac 端网站服务会在启动约 45 秒后执行一次 Azure 同步，此后每 60 分钟执行一次；若上一次媒体传输尚未结束，新一轮会自动跳过。Docker 模式的每轮任务只替换 `games.db` 的一致性快照并同步精彩时刻，不会覆盖 Azure 的 `community.db`，因此访客留言、点赞与反馈会在游戏数据更新后继续保留。它也不会在 Azure 构建程序；源码更新通过前述独立镜像发布流程完成。平台凭据、本机配置、Git 历史和忽略文件不会上传。首次媒体同步约 12GB，速度受 Mac 上行带宽影响，可能持续数小时；rsync 会保留未完成分片，任务再次运行时继续传输。只有完整文件落盘后才会出现在精彩时刻清单中。媒体目录采用镜像模式：新增和修改会上传，删除或重命名会在下一次成功同步结束时清理 Azure 上的旧文件；移动硬盘未挂载时不会执行媒体同步或远端删除。Azure VM、Premium SSD、公网 IPv4 和出站流量可能消耗学生订阅额度，长期运行时应在 Azure 成本管理中设置预算提醒。
 
 主域名运行在 Azure 时，“立即同步游戏数据”不会要求把平台凭据上传到虚拟机。管理员点击按钮后，Azure 只保存一个权限为 `600` 的随机请求编号；Mac 后台每分钟通过现有 SSH 密钥主动检查请求，在本机调用平台连接器，随后执行一次仅含数据库的即时镜像并写回成功/失败摘要。整个流程不需要家庭公网 IPv6，也不会给 Mac 新增公网入站端口。Azure 仍然只保存展示数据库，`.credential-key` 与 `credentials.enc` 始终留在 Mac。
 
@@ -485,6 +485,7 @@ npm start
 ## 数据与安全
 
 - 游戏数据库：`data/games.db`
+- 留言、点赞与反馈数据库：`data/community.db`
 - 加密凭据：`data/credentials.enc`
 - 本机加密密钥：`data/.credential-key`
 - 以上内容、SQLite 临时文件、依赖目录和系统文件均已加入 `.gitignore`。

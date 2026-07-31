@@ -26,6 +26,7 @@ import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-me
 import { createBaiduStreamService } from "./src/baidu-stream.mjs";
 import { configureOutboundProxy } from "./src/network.mjs";
 import { birthdaySignalActive, birthdayTicketFor } from "./src/birthday-easter-egg.mjs";
+import { openCommunityDatabase } from "./src/community-store.mjs";
 import {
   calibratedFinalMinutes,
   matchPlaystationCalibrationRecord,
@@ -163,24 +164,6 @@ db.exec(`
     calibrated_at TEXT NOT NULL,
     result_json TEXT NOT NULL
   );
-  CREATE TABLE IF NOT EXISTS guestbook_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nickname TEXT NOT NULL,
-    message TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS feedback_messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nickname TEXT NOT NULL,
-    message TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS site_counters (
-    name TEXT PRIMARY KEY,
-    value INTEGER NOT NULL DEFAULT 0 CHECK(value >= 0),
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  INSERT OR IGNORE INTO site_counters(name, value) VALUES ('likes', 0);
 `);
 
 const gamesTableSql = String(db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'games'").get()?.sql || "");
@@ -243,6 +226,7 @@ if (!activityColumns.includes("precision")) {
   db.exec("ALTER TABLE daily_activity ADD COLUMN precision TEXT NOT NULL DEFAULT 'detected'");
   db.exec("UPDATE daily_activity SET precision = 'exact' WHERE platform = 'nintendo'");
 }
+const communityDb = openCommunityDatabase({ dataDirectory: dataDir, legacyDatabase: db });
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -391,7 +375,7 @@ app.get("/media/highlights/:filename", (req, res) => {
 });
 app.use(express.static(path.join(root, "public")));
 
-const listGuestbookMessages = db.prepare(`
+const listGuestbookMessages = communityDb.prepare(`
   SELECT id, nickname, message, created_at AS createdAt
   FROM (
     SELECT id, nickname, message, created_at
@@ -401,32 +385,32 @@ const listGuestbookMessages = db.prepare(`
   )
   ORDER BY id
 `);
-const insertGuestbookMessage = db.prepare(`
+const insertGuestbookMessage = communityDb.prepare(`
   INSERT INTO guestbook_messages(nickname, message) VALUES (?, ?)
   RETURNING id, nickname, message, created_at AS createdAt
 `);
-const trimGuestbookMessages = db.prepare(`
+const trimGuestbookMessages = communityDb.prepare(`
   DELETE FROM guestbook_messages
   WHERE id NOT IN (SELECT id FROM guestbook_messages ORDER BY id DESC LIMIT 500)
 `);
-const readLikes = db.prepare("SELECT value FROM site_counters WHERE name = 'likes'");
-const incrementLikes = db.prepare(`
+const readLikes = communityDb.prepare("SELECT value FROM site_counters WHERE name = 'likes'");
+const incrementLikes = communityDb.prepare(`
   UPDATE site_counters
   SET value = value + 1, updated_at = CURRENT_TIMESTAMP
   WHERE name = 'likes'
   RETURNING value
 `);
-const listFeedbackMessages = db.prepare(`
+const listFeedbackMessages = communityDb.prepare(`
   SELECT id, nickname, message, created_at AS createdAt
   FROM feedback_messages
   ORDER BY id DESC
   LIMIT 200
 `);
-const insertFeedbackMessage = db.prepare(`
+const insertFeedbackMessage = communityDb.prepare(`
   INSERT INTO feedback_messages(nickname, message) VALUES (?, ?)
   RETURNING id, nickname, message, created_at AS createdAt
 `);
-const trimFeedbackMessages = db.prepare(`
+const trimFeedbackMessages = communityDb.prepare(`
   DELETE FROM feedback_messages
   WHERE id NOT IN (SELECT id FROM feedback_messages ORDER BY id DESC LIMIT 1000)
 `);
