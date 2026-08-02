@@ -32,7 +32,9 @@ services:
       GAME_VAULT_LOCAL_ORIGIN: http://127.0.0.1:4173
     volumes:
       - type: bind
-        source: "${GAME_VAULT_DATA_DIR:-./data}"
+        # The CPA gateway may run from a temporary Git worktree. Requiring the
+        # canonical path prevents that worktree from creating and publishing an empty database.
+        source: "${GAME_VAULT_DATA_DIR:?Set GAME_VAULT_DATA_DIR to the canonical game data directory}"
         target: /data
       - type: bind
         source: "${GAME_VAULT_MEDIA_DIR:-/Volumes/游戏视频}"
