@@ -1,0 +1,21 @@
+{
+	admin off
+}
+
+gamer1ce.top, game.gamer1ce.top {
+	tls internal
+	encode zstd gzip
+
+	handle_path /cpa/* {
+		@management path /management.html /v0/management /v0/management/* /v0/resource/plugins/*
+		respond @management 404
+
+		reverse_proxy cli-proxy-api:8317 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		reverse_proxy game-vault:4173
+	}
+}

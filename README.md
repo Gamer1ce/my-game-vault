@@ -321,6 +321,26 @@ Mac 端网站服务会在启动约 45 秒后执行一次 Azure 同步，此后�
 
 主域名运行在 Azure 时，“立即同步游戏数据”不会要求把平台凭据上传到虚拟机。管理员点击按钮后，Azure 只保存一个权限为 `600` 的随机请求编号；Mac 后台每分钟通过现有 SSH 密钥主动检查请求，在本机调用平台连接器，随后执行一次仅含数据库的即时镜像并写回成功/失败摘要。整个流程不需要家庭公网 IPv6，也不会给 Mac 新增公网入站端口。Azure 仍然只保存展示数据库，`.credential-key` 与 `credentials.enc` 始终留在 Mac。
 
+### 从公网使用本机 CPA
+
+本机的 CLIProxyAPI 仍只绑定 `127.0.0.1:8317`，不会直接暴露 CPA 端口。主站 Caddy 通过共享的私有 Docker 网络提供 `https://gamer1ce.top/cpa` 入口，并在转发前移除 `/cpa` 前缀。OpenAI 兼容客户端应使用以下 Base URL：
+
+```text
+https://gamer1ce.top/cpa/v1
+```
+
+公网请求必须携带专用远程 API Key；该 Key 只保存在 macOS 钥匙串中，不写入仓库。管理页面、管理 API 和插件资源管理路由在 Caddy 层统一返回 `404`，即使知道管理密钥也不能从公网访问。反向代理关闭响应缓冲，支持聊天完成和 Responses API 的流式返回。
+
+在这台 Mac 上需要重新复制远程 Key 时运行：
+
+```bash
+security find-generic-password -w \
+  -a gamer1ce \
+  -s "CLIProxyAPI Remote API Key" | pbcopy
+```
+
+远程入口依赖 Mac、Docker Desktop、CLIProxyAPI 和 Caddy 持续运行；Mac 关机、休眠或家庭网络离线时不可用。不要把远程 Key 写进网页前端、公开仓库、截图或聊天记录。需要撤销某台远程设备时，应生成新 Key、更新 CPA 私密配置和钥匙串，再删除旧 Key。
+
 Azure 的 systemd 服务需要安装仓库中的 `deploy/azure/game-vault-sync-request.conf` 作为 `game-vault.service.d` drop-in，并执行 `systemctl daemon-reload` 与 `systemctl restart game-vault`。该配置只指定请求文件位置，不含账号、密码或平台令牌。
 
 ### PlayStation
