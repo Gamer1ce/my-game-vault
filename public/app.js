@@ -295,7 +295,7 @@ $("#guestbookForm").addEventListener("submit", async (event) => {
       state.guestbook.messages = [...state.guestbook.messages, result.message].slice(-36);
       form.elements.message.value = "";
       renderDanmaku();
-      toast("留言已接入通讯频道");
+      toast("发送成功，留言已接入通讯频道");
       if (result.birthdayTicket) showBirthdayThanks(result.birthdayTicket);
     }
   } catch (error) {

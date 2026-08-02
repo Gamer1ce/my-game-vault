@@ -99,12 +99,17 @@ nav {
   gap: 7px;
   margin-top: 12px;
 }
-#guestbookForm { width: min(360px, calc(100% - 54px)); }
+#guestbookForm {
+  width: min(430px, calc(100% - 54px));
+  display: flex;
+}
 #guestbookForm input[name="message"] {
-  width: 100%;
+  min-width: 0;
+  flex: 1;
   height: 34px;
   padding: 6px 11px;
   border: 1px solid #080a0c;
+  border-right: 0;
   border-radius: 0;
   color: #080a0c;
   background: #fff65d;
@@ -123,13 +128,29 @@ nav {
 #guestbookForm.birthday-hint-glitch input[name="message"] {
   animation: birthday-hint-glitch .65s steps(1, end);
 }
-.guestbook-submit-sr, .guestbook-trap {
-  position: absolute !important;
-  left: -10000px !important;
-  width: 1px !important;
-  height: 1px !important;
-  opacity: 0 !important;
-  pointer-events: none !important;
+.guestbook-submit {
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid #080a0c;
+  border-radius: 0;
+  color: var(--yellow);
+  background: #080a0c;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+.guestbook-submit:hover, .guestbook-submit:focus-visible {
+  color: #080a0c;
+  background: var(--cyan);
+}
+.guestbook-submit:disabled {
+  color: #85816b;
+  background: #24272b;
+  cursor: wait;
 }
 .site-like {
   min-width: 47px;
@@ -1346,7 +1367,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .nav-highlight { font-size: 10px; }
   .guest-actions { margin-top: 9px; }
   #guestbookForm { width: calc(100% - 51px); }
-  #guestbookForm input[name="message"] { height: 32px; }
+  #guestbookForm input[name="message"], .guestbook-submit { height: 32px; }
+  .guestbook-submit { padding-inline: 10px; }
   .site-like { min-width: 44px; height: 32px; padding-inline: 7px; }
   .danmaku-stage { height: 31px; margin-top: 3px; }
   .danmaku-item { font-size: 10px; }
