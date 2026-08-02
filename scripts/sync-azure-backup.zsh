@@ -8,7 +8,8 @@ remote_host=${AZURE_BACKUP_REMOTE:-azureuser@74.248.153.120}
 remote_root=${AZURE_BACKUP_ROOT:-/srv/game-vault}
 remote_deployment_mode=${AZURE_BACKUP_DEPLOYMENT_MODE:-systemd}
 media_dir=${AZURE_BACKUP_MEDIA_DIR:-/Volumes/游戏视频}
-lock_dir=/tmp/com.gamer1ce.game-time-vault.azure-backup.lock
+minimum_visible_games=${AZURE_BACKUP_MIN_VISIBLE_GAMES:-1}
+lock_dir=${AZURE_BACKUP_LOCK_DIR:-/tmp/com.gamer1ce.game-time-vault.azure-backup.lock}
 log_prefix="$(date '+%Y-%m-%d %H:%M:%S') Azure backup"
 
 if ! mkdir "$lock_dir" 2>/dev/null; then
@@ -32,6 +33,23 @@ fi
 if [[ ! -f "$database_file" ]]; then
   echo "$log_prefix failed: games.db is unavailable" >&2
   exit 1
+fi
+
+if [[ ! "$minimum_visible_games" =~ '^[0-9]+$' ]]; then
+  echo "$log_prefix failed: AZURE_BACKUP_MIN_VISIBLE_GAMES must be a non-negative integer" >&2
+  exit 1
+fi
+
+if (( minimum_visible_games > 0 )); then
+  visible_game_count=$(sqlite3 "$database_file" "SELECT COUNT(*) FROM games WHERE time_status = 'known' AND minutes > 0;" 2>/dev/null || true)
+  if [[ ! "$visible_game_count" =~ '^[0-9]+$' ]]; then
+    echo "$log_prefix failed: games.db does not contain a readable games table" >&2
+    exit 1
+  fi
+  if (( visible_game_count < minimum_visible_games )); then
+    echo "$log_prefix blocked: refusing to replace Azure with only $visible_game_count visible games (minimum $minimum_visible_games)" >&2
+    exit 1
+  fi
 fi
 
 sqlite3 "$database_file" ".backup '$snapshot_dir/games.db'"
