@@ -17,4 +17,5 @@ aliyun-esa/baidu-media-proxy/.env
 .wrangler/
 data/backups/
 data/highlights/
+data/highlight-posters/
 .DS_Store

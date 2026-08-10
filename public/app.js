@@ -1,11 +1,17 @@
-import { estimatedBufferWait, recommendedBufferTarget, resumeBufferedPlayback, shouldFullyCacheVideo } from "./playback-buffer.js?v=20260719-1";
+import { bufferProgressTimedOut, estimatedBufferWait, recommendedBufferTarget, resumeBufferedPlayback } from "./playback-buffer.js?v=20260810-1";
 import {
   playbackCandidates,
   readPreferredPlaybackRoute,
   savePreferredPlaybackRoute,
   selectPlaybackCandidate
 } from "./playback-route.js?v=20260719-1";
-import { filteredHighlightEntries, highlightCounts, normalizeHighlightType, shuffleHighlights } from "./highlight-gallery.js?v=20260719-1";
+import {
+  arrangeHighlightsForPlayback,
+  canUseDirectLocalPlayback,
+  filteredHighlightEntries,
+  highlightCounts,
+  normalizeHighlightType
+} from "./highlight-gallery.js?v=20260810-1";
 import { createHeroSequence } from "./hero-sequence.js?v=20260718-1";
 import { detectFastDownScroll } from "./fast-scroll.js?v=20260719-1";
 import { createBirthdayHintCycle } from "./birthday-hint.js?v=20260724-1";
@@ -429,6 +435,10 @@ function safeHighlightUrl(value) {
   return typeof value === "string" && value.startsWith("/media/highlights/") ? value : null;
 }
 
+function safeHighlightPosterUrl(value) {
+  return typeof value === "string" && value.startsWith("/media/highlight-posters/") ? value : null;
+}
+
 function safePlaybackUrl(value) {
   if (typeof value !== "string") return null;
   try {
@@ -461,11 +471,12 @@ function renderHighlights() {
   });
   $("#highlightGrid").innerHTML = entries.slice(0, visibleCount).map(({ item, sourceIndex }) => {
     const url = safeHighlightUrl(item.url);
+    const posterUrl = safeHighlightPosterUrl(item.posterUrl);
     if (!url && item.type !== "video") return "";
     const title = escapeHtml(item.title || item.filename || "精彩时刻");
     const date = item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "日期未知";
     const media = item.type === "video"
-      ? `${url ? `<video src="${escapeHtml(`${url}#t=0.001`)}" preload="metadata" muted playsinline aria-label="${title}"></video>` : `<span class="highlight-remote-preview" aria-hidden="true">REMOTE // ORIGINAL</span>`}<span class="highlight-play" aria-hidden="true">▶</span>`
+      ? `<span class="highlight-static-preview" aria-hidden="true">${url ? "LOCAL // PREVIEW" : "REMOTE // ORIGINAL"}</span>${posterUrl ? `<img class="highlight-preview-image" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async">` : ""}<span class="highlight-play" aria-hidden="true">▶</span>`
       : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
     const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">${item.storageSource === "baidu" ? "百度云原画" : "云端原画"}</em>` : "";
     return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${sourceIndex}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
@@ -499,7 +510,7 @@ function renderHighlights() {
 
 async function loadHighlights() {
   const result = await api("/api/highlights");
-  state.highlights = shuffleHighlights(Array.isArray(result.highlights) ? result.highlights : []);
+  state.highlights = arrangeHighlightsForPlayback(Array.isArray(result.highlights) ? result.highlights : []);
   const counts = highlightCounts(state.highlights);
   state.highlightFilter = counts.video > 0 || counts.image === 0 ? "video" : "image";
   state.visibleHighlights = { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT };
@@ -543,8 +554,16 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   const bar = panel.querySelector(".highlight-buffer-track i");
   const bufferedPlay = panel.querySelector(".highlight-buffer-play");
   const playNow = panel.querySelector(".highlight-play-now");
-  const sample = { startedAt: performance.now(), initialEnd: 0, rate: null, playing: false };
-  const fullCache = shouldFullyCacheVideo(item.size, playback.source);
+  const sample = {
+    startedAt: performance.now(),
+    initialEnd: 0,
+    rate: null,
+    playing: false,
+    waiting: false,
+    stalled: false,
+    lastBufferedEnd: 0,
+    lastProgressAt: performance.now()
+  };
   let activePlaybackUrl = playbackUrl;
   const fallbackCandidates = Array.isArray(playback.fallbackCandidates) ? [...playback.fallbackCandidates] : [];
 
@@ -558,6 +577,14 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
       if (candidate?.url && candidate.url !== activePlaybackUrl) {
         activePlaybackUrl = candidate.url;
         updateRouteLabel(candidate);
+        sample.startedAt = performance.now();
+        sample.initialEnd = 0;
+        sample.rate = null;
+        sample.playing = false;
+        sample.waiting = false;
+        sample.stalled = false;
+        sample.lastBufferedEnd = 0;
+        sample.lastProgressAt = performance.now();
         return candidate;
       }
     }
@@ -570,51 +597,84 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
 
   const update = () => {
     if (request !== highlightPlaybackRequest || !video.isConnected) return;
+    const now = performance.now();
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) {
-      status.textContent = "正在读取视频索引…";
+      if (bufferProgressTimedOut({ now, lastProgressAt: sample.lastProgressAt, playing: sample.playing })) {
+        sample.stalled = true;
+        status.textContent = "视频索引读取较慢；可以尝试播放，已经收到的数据不会重新下载。";
+        bufferedPlay.disabled = false;
+        bufferedPlay.textContent = "尝试播放";
+        playNow.hidden = true;
+      } else {
+        status.textContent = "正在读取视频索引…";
+      }
       return;
     }
+    const currentTime = Math.max(0, Number(video.currentTime || 0));
     const bufferedEnd = Math.min(duration, bufferedEndAtCurrentTime(video));
-    const elapsed = Math.max(0.001, (performance.now() - sample.startedAt) / 1000);
+    if (bufferedEnd > sample.lastBufferedEnd + 0.05) {
+      sample.lastBufferedEnd = bufferedEnd;
+      sample.lastProgressAt = now;
+      sample.stalled = false;
+    }
+    const elapsed = Math.max(0.001, (now - sample.startedAt) / 1000);
     if (elapsed >= 2 && bufferedEnd > sample.initialEnd) sample.rate = (bufferedEnd - sample.initialEnd) / elapsed;
-    const target = fullCache ? duration : recommendedBufferTarget(duration, sample.rate);
-    const ready = bufferedEnd + 0.5 >= target;
-    const wait = estimatedBufferWait(target, bufferedEnd, sample.rate);
-    bar.style.width = `${Math.min(100, (bufferedEnd / duration) * 100).toFixed(2)}%`;
-    panel.style.setProperty("--buffer-target", `${Math.min(100, (target / duration) * 100).toFixed(2)}%`);
+    const remaining = Math.max(0, duration - currentTime);
+    const bufferAhead = Math.max(0, bufferedEnd - currentTime);
+    const target = recommendedBufferTarget(remaining, sample.rate);
+    const ready = remaining <= 0.5 || bufferAhead + 0.5 >= target;
+    const wait = estimatedBufferWait(target, bufferAhead, sample.rate);
+    if (bufferProgressTimedOut({ now, lastProgressAt: sample.lastProgressAt, playing: sample.playing, ready })) sample.stalled = true;
+    bar.style.width = `${Math.min(100, target > 0 ? (bufferAhead / target) * 100 : 100).toFixed(2)}%`;
+    panel.style.setProperty("--buffer-target", "100%");
 
     if (sample.playing) {
-      status.textContent = ready && fullCache
-        ? "原画已完整缓存，正在从浏览器缓存播放。"
-        : `已保留 ${formatBufferClock(bufferedEnd)} 缓存，正在播放原画。`;
+      status.textContent = sample.waiting
+        ? `当前缓存不足，已保留 ${formatBufferClock(bufferAhead)}，正在继续读取原画…`
+        : `前方已缓存 ${formatBufferClock(bufferAhead)}，正在播放原画。`;
       bufferedPlay.disabled = true;
       bufferedPlay.textContent = "正在播放";
       playNow.hidden = true;
     } else if (ready) {
-      status.textContent = fullCache
-        ? `原画已完整缓存（${formatFileSize(item.size)}），可以开始播放。`
-        : `已缓存 ${formatBufferClock(bufferedEnd)}，达到当前线路的建议值。`;
+      status.textContent = `前方已缓存 ${formatBufferClock(bufferAhead)}，可以开始流畅播放。`;
       bufferedPlay.disabled = false;
-      bufferedPlay.textContent = fullCache ? "开始播放" : "开始流畅播放";
-      if (fullCache) playNow.hidden = true;
+      bufferedPlay.textContent = "开始流畅播放";
+      playNow.hidden = true;
+    } else if (sample.stalled) {
+      status.textContent = `浏览器暂停了后台预缓存；已保留 ${formatBufferClock(bufferAhead)}，可以沿用现有缓存播放。`;
+      bufferedPlay.disabled = false;
+      bufferedPlay.textContent = "使用现有缓存播放";
+      playNow.hidden = true;
     } else {
       const estimate = wait === null ? "正在测量线路速度" : `预计还需约 ${formatBufferClock(wait)}`;
-      status.textContent = fullCache
-        ? `已缓存 ${formatBufferClock(bufferedEnd)} / ${formatBufferClock(duration)} · ${estimate}`
-        : `已缓存 ${formatBufferClock(bufferedEnd)} / 建议 ${formatBufferClock(target)} · ${estimate}`;
+      status.textContent = `前方已缓存 ${formatBufferClock(bufferAhead)} / 建议 ${formatBufferClock(target)} · ${estimate}`;
       bufferedPlay.disabled = true;
       bufferedPlay.textContent = "正在预缓存";
     }
   };
 
   bufferedPlay.addEventListener("click", startPlayback);
-  video.addEventListener("loadedmetadata", () => { sample.startedAt = performance.now(); sample.initialEnd = bufferedEndAtCurrentTime(video); update(); });
+  video.addEventListener("loadedmetadata", () => {
+    sample.startedAt = performance.now();
+    sample.initialEnd = bufferedEndAtCurrentTime(video);
+    sample.lastBufferedEnd = sample.initialEnd;
+    sample.lastProgressAt = performance.now();
+    update();
+  });
   video.addEventListener("progress", update);
-  video.addEventListener("canplay", update);
-  video.addEventListener("waiting", () => { status.textContent = "当前缓存不足，正在继续读取原画…"; });
+  video.addEventListener("canplay", () => { sample.waiting = false; update(); });
+  video.addEventListener("stalled", update);
+  video.addEventListener("waiting", () => { sample.waiting = true; update(); });
   video.addEventListener("play", () => { sample.playing = true; update(); });
+  video.addEventListener("playing", () => { sample.playing = true; sample.waiting = false; update(); });
   video.addEventListener("pause", () => { if (!video.ended) { sample.playing = false; update(); } });
+  video.addEventListener("seeking", () => {
+    sample.lastBufferedEnd = bufferedEndAtCurrentTime(video);
+    sample.lastProgressAt = performance.now();
+    sample.stalled = false;
+    update();
+  });
   video.addEventListener("error", () => {
     const fallback = nextFallback();
     if (fallback) {
@@ -629,11 +689,9 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   });
   viewer.replaceChildren(video, source, panel);
   stopHighlightBufferTimer();
-  if (fullCache) {
-    panel.querySelector(".highlight-buffer-copy strong").textContent = "完整缓存原画";
-    status.textContent = `正在预缓存 ${formatFileSize(item.size)}；立即播放会保留当前缓存。`;
-    panel.style.setProperty("--buffer-target", "100%");
-  }
+  panel.querySelector(".highlight-buffer-copy strong").textContent = "流畅播放缓冲";
+  status.textContent = "先缓存约 8–15 秒；立即播放会沿用已经下载的内容。";
+  panel.style.setProperty("--buffer-target", "100%");
   playNow.addEventListener("click", startPlayback);
   video.src = activePlaybackUrl;
   highlightBufferTimer = setInterval(update, 750);
@@ -657,9 +715,14 @@ async function openHighlight(index) {
   viewer.innerHTML = `<div class="highlight-loading"><strong>正在连接媒体节点</strong><span>校验原画播放地址…</span></div>`;
   $("#highlightDialog").showModal();
   try {
-    const parameters = new URLSearchParams({ filename: item.filename, source: item.storageSource || "default" });
-    if (item.playbackId) parameters.set("id", item.playbackId);
-    const playback = await api(`/api/highlights/playback?${parameters}`);
+    let playback;
+    if (canUseDirectLocalPlayback(item) && url) {
+      playback = { url, source: "local", expiresIn: null };
+    } else {
+      const parameters = new URLSearchParams({ filename: item.filename, source: item.storageSource || "default" });
+      if (item.playbackId) parameters.set("id", item.playbackId);
+      playback = await api(`/api/highlights/playback?${parameters}`);
+    }
     if (request !== highlightPlaybackRequest || !$("#highlightDialog").open) return;
     const candidates = playbackCandidates(playback).map((candidate) => ({
       ...candidate,

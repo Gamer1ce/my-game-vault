@@ -58,11 +58,13 @@ export function listHighlights(directory, limit = 500) {
     if (!type) continue;
     try {
       const stats = statSync(path.join(directory, entry.name));
+      const version = Math.trunc(stats.mtimeMs);
       items.push({
         filename: entry.name,
         title: highlightTitle(entry.name),
         type,
-        url: `/media/highlights/${encodeURIComponent(entry.name)}`,
+        url: `/media/highlights/${encodeURIComponent(entry.name)}?v=${version}`,
+        posterUrl: type === "video" ? `/media/highlight-posters/${encodeURIComponent(entry.name)}?v=${version}` : null,
         size: stats.size,
         modifiedAt: stats.mtime.toISOString()
       });
@@ -74,3 +76,6 @@ export function listHighlights(directory, limit = 500) {
 }
 
 export const supportedHighlightFormats = [...mediaExtensions.keys()];
+export const supportedHighlightVideoFormats = [...mediaExtensions.entries()]
+  .filter(([, type]) => type === "video")
+  .map(([extension]) => extension);

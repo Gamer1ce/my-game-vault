@@ -19,7 +19,8 @@ import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
 import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, reconciledLifetimeMinutes, shanghaiDate } from "./src/activity.mjs";
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
-import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats } from "./src/highlights.mjs";
+import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats, supportedHighlightVideoFormats } from "./src/highlights.mjs";
+import { createHighlightPosterService } from "./src/highlight-posters.mjs";
 import { createSyncRunner } from "./src/sync-runner.mjs";
 import { createSyncRequestQueue } from "./src/sync-request.mjs";
 import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
@@ -45,6 +46,7 @@ const db = new DatabaseSync(path.join(dataDir, "games.db"));
 const credentials = new CredentialStore(dataDir);
 const remoteMedia = createRemoteMediaService({ dataDirectory: dataDir });
 const baiduStream = createBaiduStreamService({ dataDirectory: dataDir });
+const highlightPosters = createHighlightPosterService({ cacheDirectory: path.join(dataDir, "highlight-posters") });
 const playstation = createPlaystationConnector();
 const xbox = createXboxConnector();
 const nintendo = createNintendoConnector();
@@ -351,6 +353,30 @@ app.delete("/api/admin/session", (req, res) => {
   res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
   res.status(204).end();
 });
+app.get("/media/highlight-posters/:filename", async (req, res) => {
+  const filename = String(req.params.filename || "");
+  const extension = path.extname(filename).toLowerCase();
+  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightVideoFormats.includes(extension)) return res.status(404).end();
+  try {
+    const { directory } = resolveHighlightsDirectory(dataDir);
+    const realDirectory = realpathSync(directory);
+    const file = path.join(realDirectory, filename);
+    const stats = lstatSync(file);
+    if (!stats.isFile() || stats.isSymbolicLink()) return res.status(404).end();
+    const poster = await highlightPosters.posterFor(file, filename, stats);
+    res.set({
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Content-Type": "image/jpeg",
+      "Cross-Origin-Resource-Policy": "same-origin"
+    });
+    return res.sendFile(poster, (error) => {
+      if (!error || error.code === "ECONNABORTED" || error.code === "EPIPE" || res.headersSent) return;
+      return res.status(error.statusCode || 404).end();
+    });
+  } catch {
+    return res.status(404).end();
+  }
+});
 app.get("/media/highlights/:filename", (req, res) => {
   const filename = String(req.params.filename || "");
   if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) return res.status(404).end();
@@ -360,9 +386,12 @@ app.get("/media/highlights/:filename", (req, res) => {
     const file = path.join(realDirectory, filename);
     const stats = lstatSync(file);
     if (!stats.isFile() || stats.isSymbolicLink()) return res.status(404).end();
+    const strongEtag = `"${stats.size.toString(16)}-${Math.trunc(stats.mtimeMs).toString(16)}"`;
     res.set({
+      "Cache-Control": "public, max-age=31536000, immutable",
       "Content-Disposition": "inline",
-      "Cross-Origin-Resource-Policy": "same-origin"
+      "Cross-Origin-Resource-Policy": "same-origin",
+      "ETag": strongEtag
     });
     return res.sendFile(filename, { root: realDirectory, dotfiles: "deny", maxAge: "5m" }, (error) => {
       if (!error) return;
