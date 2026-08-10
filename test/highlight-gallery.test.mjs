@@ -39,23 +39,29 @@ test("精彩时刻在加载时随机排列且不修改原始清单", () => {
   assert.deepEqual(shuffled.map(({ filename }) => filename), ["shot.png", "clip-2.mp4", "notes.txt", "clip.webm"]);
 });
 
-test("视频按体积分组后随机，避免首屏被超大文件占满", () => {
+test("不超过 96 MiB 的视频整体随机，同时避免首屏被超大文件占满", () => {
   const megabyte = 1024 * 1024;
   const items = [
     { filename: "huge.mp4", type: "video", size: 400 * megabyte },
     { filename: "small-a.mp4", type: "video", size: 12 * megabyte },
-    { filename: "medium.mp4", type: "video", size: 80 * megabyte },
     { filename: "small-b.webm", type: "video", size: 20 * megabyte },
+    { filename: "medium.mp4", type: "video", size: 80 * megabyte },
+    { filename: "boundary.mp4", type: "video", size: 96 * megabyte },
+    { filename: "over-boundary.mp4", type: "video", size: (96 * megabyte) + 1 },
     { filename: "shot-a.png", type: "image", size: 2 * megabyte },
     { filename: "shot-b.png", type: "image", size: 1 * megabyte }
   ];
+  const original = items.map((item) => ({ ...item }));
   const arranged = arrangeHighlightsForPlayback(items, () => 0);
   assert.deepEqual(arranged.filter((item) => item.type === "video").map((item) => item.filename), [
     "small-b.webm",
-    "small-a.mp4",
     "medium.mp4",
+    "boundary.mp4",
+    "small-a.mp4",
+    "over-boundary.mp4",
     "huge.mp4"
   ]);
+  assert.deepEqual(items, original);
   assert.deepEqual(new Set(arranged.filter((item) => item.type === "image").map((item) => item.filename)), new Set(["shot-a.png", "shot-b.png"]));
 });
 

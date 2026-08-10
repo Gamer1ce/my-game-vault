@@ -20,7 +20,7 @@ export function shuffleHighlights(items = [], random = Math.random) {
   return shuffled;
 }
 
-const PLAYBACK_SIZE_BANDS = [32, 96, 256].map((megabytes) => megabytes * 1024 * 1024);
+const PLAYBACK_SIZE_BANDS = [96, 256].map((megabytes) => megabytes * 1024 * 1024);
 
 function playbackSizeBand(item) {
   const size = Number(item?.size);
