@@ -13,6 +13,32 @@ export function playbackCandidates(playback) {
     : [];
 }
 
+export function localPlaybackCandidates(localUrl, { pageOrigin, directOrigin } = {}) {
+  try {
+    const siteUrl = new URL(localUrl, pageOrigin);
+    if (!siteUrl.pathname.startsWith("/media/highlights/")) return [];
+    const candidates = [];
+    if (directOrigin) {
+      const directBase = new URL(directOrigin);
+      if (directBase.protocol === "https:" && directBase.origin !== siteUrl.origin) {
+        candidates.push({
+          id: "home-ipv6-direct",
+          label: "家庭 IPv6 直连",
+          url: new URL(`${siteUrl.pathname}${siteUrl.search}`, `${directBase.origin}/`).href
+        });
+      }
+    }
+    candidates.push({
+      id: "site-proxy",
+      label: "Cloudflare 兼容线路",
+      url: siteUrl.href
+    });
+    return candidates;
+  } catch {
+    return [];
+  }
+}
+
 export function readPreferredPlaybackRoute(storage) {
   try {
     const saved = JSON.parse(storage?.getItem(PLAYBACK_ROUTE_CACHE_KEY) || "null");

@@ -12,6 +12,7 @@
     "media:baidu:deploy-worker": "node --env-file-if-exists=data/baidu-media.env scripts/deploy-baidu-worker.mjs",
     "media:baidu:deploy-esa": "node --env-file-if-exists=data/baidu-media.env scripts/deploy-baidu-esa.mjs",
     "media:faststart": "node scripts/optimize-highlight-mp4.mjs",
+    "media:direct-cert": "node scripts/renew-direct-media-certificate.mjs",
     "azure:dns": "node scripts/cloudflare-azure-dns.mjs",
     "azure:sync": "zsh scripts/sync-azure-backup.zsh",
     "test": "node --test"

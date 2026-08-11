@@ -7,6 +7,7 @@ data/credentials.enc.tmp
 data/admin-access.json
 data/public-mode
 data/highlights-path.txt
+data/direct-media-origin.txt
 data/remote-media.env
 data/remote-media.json
 data/remote-media.json.tmp

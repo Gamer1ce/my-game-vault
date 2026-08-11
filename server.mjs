@@ -57,6 +57,21 @@ const publicMode = process.env.PUBLIC_MODE === "1" || existsSync(path.join(dataD
 const platformSyncEnabled = process.env.PLATFORM_SYNC_ENABLED !== "0";
 const syncRequestQueue = createSyncRequestQueue(process.env.SYNC_REQUEST_FILE);
 
+function optionalHttpsOrigin(value) {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    return parsed.protocol === "https:" ? parsed.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+const directMediaOriginFile = path.join(dataDir, "direct-media-origin.txt");
+const directMediaOriginValue = String(process.env.DIRECT_MEDIA_ORIGIN || "").trim()
+  || (existsSync(directMediaOriginFile) ? readFileSync(directMediaOriginFile, "utf8").trim() : "");
+const directMediaOrigin = optionalHttpsOrigin(directMediaOriginValue);
+if (directMediaOriginValue && !directMediaOrigin) console.warn("DIRECT_MEDIA_ORIGIN 已忽略：必须是有效的 HTTPS Origin");
+
 function adminAccess() {
   if (!publicMode) return null;
   const envPassword = String(process.env.ADMIN_PASSWORD || "").trim();
@@ -291,8 +306,8 @@ function adminTransportAllowed(req) {
 function setSecurityHeaders(_req, res, next) {
   const remoteMediaSource = remoteMedia.allowedMediaSource();
   const baiduMediaSources = baiduStream.allowedMediaSources();
-  const mediaSources = ["'self'", "blob:", remoteMediaSource, ...baiduMediaSources].filter(Boolean).join(" ");
-  const connectSources = ["'self'", ...baiduMediaSources].filter(Boolean).join(" ");
+  const mediaSources = ["'self'", "blob:", directMediaOrigin, remoteMediaSource, ...baiduMediaSources].filter(Boolean).join(" ");
+  const connectSources = ["'self'", directMediaOrigin, ...baiduMediaSources].filter(Boolean).join(" ");
   res.set({
     "Content-Security-Policy": `default-src 'self'; img-src 'self' https: data:; media-src ${mediaSources}; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src ${connectSources}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     "Referrer-Policy": "no-referrer",
@@ -377,6 +392,20 @@ app.get("/media/highlight-posters/:filename", async (req, res) => {
     return res.status(404).end();
   }
 });
+function setPublicMediaCors(res) {
+  res.set({
+    "Access-Control-Allow-Headers": "Range",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Expose-Headers": "Accept-Ranges, Content-Length, Content-Range, ETag",
+    "Access-Control-Max-Age": "86400",
+    "Cross-Origin-Resource-Policy": "cross-origin"
+  });
+}
+app.options("/media/highlights/:filename", (_req, res) => {
+  setPublicMediaCors(res);
+  res.status(204).end();
+});
 app.get("/media/highlights/:filename", (req, res) => {
   const filename = String(req.params.filename || "");
   if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) return res.status(404).end();
@@ -390,9 +419,9 @@ app.get("/media/highlights/:filename", (req, res) => {
     res.set({
       "Cache-Control": "public, max-age=31536000, immutable",
       "Content-Disposition": "inline",
-      "Cross-Origin-Resource-Policy": "same-origin",
       "ETag": strongEtag
     });
+    setPublicMediaCors(res);
     return res.sendFile(filename, { root: realDirectory, dotfiles: "deny", maxAge: "5m" }, (error) => {
       if (!error) return;
       if (error.code === "ECONNABORTED" || error.code === "EPIPE" || res.headersSent) return;
@@ -1108,7 +1137,8 @@ app.get("/api/highlights", async (_req, res) => {
     remoteEnabled: remoteMedia.isEnabled(),
     remoteCount: Object.keys(manifest.files || {}).length,
     baiduEnabled: baiduStream.isEnabled(),
-    baiduCount: baiduHighlights.length
+    baiduCount: baiduHighlights.length,
+    directMediaOrigin
   });
 });
 

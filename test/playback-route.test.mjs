@@ -1,11 +1,34 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  localPlaybackCandidates,
   playbackCandidates,
   readPreferredPlaybackRoute,
   savePreferredPlaybackRoute,
   selectPlaybackCandidate
 } from "../public/playback-route.js";
+
+test("本机视频优先测速 IPv6 直连并保留网站兼容线路", () => {
+  assert.deepEqual(localPlaybackCandidates("/media/highlights/clip%20one.mp4?v=42", {
+    pageOrigin: "https://gamer1ce.top",
+    directOrigin: "https://steamway.gamer1ce.top"
+  }), [
+    {
+      id: "home-ipv6-direct",
+      label: "家庭 IPv6 直连",
+      url: "https://steamway.gamer1ce.top/media/highlights/clip%20one.mp4?v=42"
+    },
+    {
+      id: "site-proxy",
+      label: "Cloudflare 兼容线路",
+      url: "https://gamer1ce.top/media/highlights/clip%20one.mp4?v=42"
+    }
+  ]);
+  assert.deepEqual(localPlaybackCandidates("/api/games", {
+    pageOrigin: "https://gamer1ce.top",
+    directOrigin: "https://steamway.gamer1ce.top"
+  }), []);
+});
 
 test("旧版单线路播放响应保持兼容", () => {
   assert.deepEqual(playbackCandidates({ url: "https://media.example/v1/token/video.mp4" }), [{

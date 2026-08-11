@@ -1,10 +1,18 @@
-import { bufferProgressTimedOut, estimatedBufferWait, recommendedBufferTarget, resumeBufferedPlayback } from "./playback-buffer.js?v=20260810-1";
 import {
+  bufferProgressTimedOut,
+  estimatedBufferWait,
+  planPlaybackReadAheadRange,
+  recommendedBufferTarget,
+  recommendedPlaybackReadAhead,
+  resumeBufferedPlayback
+} from "./playback-buffer.js?v=20260811-1";
+import {
+  localPlaybackCandidates,
   playbackCandidates,
   readPreferredPlaybackRoute,
   savePreferredPlaybackRoute,
   selectPlaybackCandidate
-} from "./playback-route.js?v=20260719-1";
+} from "./playback-route.js?v=20260811-1";
 import {
   arrangeHighlightsForPlayback,
   canUseDirectLocalPlayback,
@@ -514,16 +522,25 @@ async function loadHighlights() {
   const counts = highlightCounts(state.highlights);
   state.highlightFilter = counts.video > 0 || counts.image === 0 ? "video" : "image";
   state.visibleHighlights = { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT };
-  state.highlightStorage = { available: result.available !== false, customDirectory: result.customDirectory === true, remoteEnabled: result.remoteEnabled === true, remoteCount: Number(result.remoteCount || 0) };
+  state.highlightStorage = {
+    available: result.available !== false,
+    customDirectory: result.customDirectory === true,
+    remoteEnabled: result.remoteEnabled === true,
+    remoteCount: Number(result.remoteCount || 0),
+    directMediaOrigin: typeof result.directMediaOrigin === "string" ? result.directMediaOrigin : null
+  };
   renderHighlights();
 }
 
 let highlightPlaybackRequest = 0;
 let highlightBufferTimer = null;
+let highlightReadAheadAbort = null;
 
 function stopHighlightBufferTimer() {
   if (highlightBufferTimer) clearInterval(highlightBufferTimer);
   highlightBufferTimer = null;
+  if (highlightReadAheadAbort) highlightReadAheadAbort.abort();
+  highlightReadAheadAbort = null;
 }
 
 function bufferedEndAtCurrentTime(video) {
@@ -540,12 +557,39 @@ function formatBufferClock(seconds) {
   return minutes ? `${minutes}分${String(remainder).padStart(2, "0")}秒` : `${remainder}秒`;
 }
 
+async function prefetchPlaybackRange(url, range, signal) {
+  const target = new URL(url, window.location.origin);
+  const response = await fetch(target.href, {
+    headers: { Range: `bytes=${range.startByte}-${range.endByte}` },
+    credentials: target.origin === window.location.origin ? "same-origin" : "omit",
+    cache: "default",
+    priority: "low",
+    signal
+  });
+  if (response.status !== 206) {
+    await response.body?.cancel().catch(() => {});
+    return false;
+  }
+  if (!response.body?.getReader) {
+    await response.arrayBuffer();
+    return true;
+  }
+  const reader = response.body.getReader();
+  while (true) {
+    const { done } = await reader.read();
+    if (done) return true;
+  }
+}
+
 function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request) {
   const source = document.createElement("span");
   source.className = `highlight-playback-source ${playback.source === "remote" ? "is-remote" : "is-local"}`;
-  source.textContent = playback.source === "baidu"
-    ? `百度云原画${playback.routeLabel ? ` · ${playback.routeLabel}` : ""}`
-    : playback.source === "remote" ? "云端原画" : "本机线路";
+  const routeSourceText = (label) => playback.source === "baidu"
+    ? `百度云原画${label ? ` · ${label}` : ""}`
+    : playback.source === "remote"
+      ? `云端原画${label ? ` · ${label}` : ""}`
+      : label || "本机线路";
+  source.textContent = routeSourceText(playback.routeLabel);
 
   const panel = document.createElement("div");
   panel.className = "highlight-buffer-panel";
@@ -566,15 +610,55 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   };
   let activePlaybackUrl = playbackUrl;
   const fallbackCandidates = Array.isArray(playback.fallbackCandidates) ? [...playback.fallbackCandidates] : [];
+  const readAhead = { controller: null, prefetchedThrough: 0, lastFailedAt: 0 };
+
+  const abortReadAhead = () => {
+    const controller = readAhead.controller;
+    if (!controller) return;
+    controller.abort();
+    readAhead.controller = null;
+    if (highlightReadAheadAbort === controller) highlightReadAheadAbort = null;
+  };
+
+  const maybeStartReadAhead = ({ duration, currentTime, bufferedEnd, target, now }) => {
+    if (!sample.playing || sample.waiting || readAhead.controller || navigator.connection?.saveData) return;
+    if (bufferedEnd - currentTime < 4) return;
+    // preload="auto" is only a hint. Wait until the native loader becomes idle so
+    // the low-priority request never competes with an active media range request.
+    if (video.networkState !== 1 || now - readAhead.lastFailedAt < 10_000) return;
+    const plan = planPlaybackReadAheadRange({
+      size: item.size,
+      duration,
+      currentTime,
+      bufferedEnd,
+      prefetchedThrough: readAhead.prefetchedThrough,
+      readAheadSeconds: target
+    });
+    if (!plan) return;
+    const controller = new AbortController();
+    readAhead.controller = controller;
+    highlightReadAheadAbort = controller;
+    prefetchPlaybackRange(activePlaybackUrl, plan, controller.signal).then((completed) => {
+      if (completed) readAhead.prefetchedThrough = Math.max(readAhead.prefetchedThrough, plan.throughTime);
+      else readAhead.lastFailedAt = performance.now();
+    }).catch((error) => {
+      if (error?.name !== "AbortError") readAhead.lastFailedAt = performance.now();
+    }).finally(() => {
+      if (readAhead.controller === controller) readAhead.controller = null;
+      if (highlightReadAheadAbort === controller) highlightReadAheadAbort = null;
+      if (request === highlightPlaybackRequest && video.isConnected) update();
+    });
+  };
 
   const updateRouteLabel = (candidate) => {
-    if (candidate?.label) source.textContent = `百度云原画 · ${candidate.label}`;
+    if (candidate?.label) source.textContent = routeSourceText(candidate.label);
   };
 
   const nextFallback = () => {
     while (fallbackCandidates.length) {
       const candidate = fallbackCandidates.shift();
       if (candidate?.url && candidate.url !== activePlaybackUrl) {
+        abortReadAhead();
         activePlaybackUrl = candidate.url;
         updateRouteLabel(candidate);
         sample.startedAt = performance.now();
@@ -585,6 +669,8 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
         sample.stalled = false;
         sample.lastBufferedEnd = 0;
         sample.lastProgressAt = performance.now();
+        readAhead.prefetchedThrough = 0;
+        readAhead.lastFailedAt = 0;
         return candidate;
       }
     }
@@ -622,17 +708,22 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     if (elapsed >= 2 && bufferedEnd > sample.initialEnd) sample.rate = (bufferedEnd - sample.initialEnd) / elapsed;
     const remaining = Math.max(0, duration - currentTime);
     const bufferAhead = Math.max(0, bufferedEnd - currentTime);
-    const target = recommendedBufferTarget(remaining, sample.rate);
-    const ready = remaining <= 0.5 || bufferAhead + 0.5 >= target;
-    const wait = estimatedBufferWait(target, bufferAhead, sample.rate);
+    if (readAhead.controller && (video.networkState === 2 || bufferAhead < 4)) abortReadAhead();
+    const startupTarget = recommendedBufferTarget(remaining, sample.rate);
+    const playbackTarget = recommendedPlaybackReadAhead(duration, currentTime, sample.rate);
+    const ready = remaining <= 0.5 || bufferAhead + 0.5 >= startupTarget;
+    const wait = estimatedBufferWait(startupTarget, bufferAhead, sample.rate);
     if (bufferProgressTimedOut({ now, lastProgressAt: sample.lastProgressAt, playing: sample.playing, ready })) sample.stalled = true;
-    bar.style.width = `${Math.min(100, target > 0 ? (bufferAhead / target) * 100 : 100).toFixed(2)}%`;
+    const activeTarget = sample.playing ? playbackTarget : startupTarget;
+    const prefetchedAhead = Math.max(0, readAhead.prefetchedThrough - currentTime);
+    const effectiveAhead = Math.max(bufferAhead, prefetchedAhead);
+    bar.style.width = `${Math.min(100, activeTarget > 0 ? (effectiveAhead / activeTarget) * 100 : 100).toFixed(2)}%`;
     panel.style.setProperty("--buffer-target", "100%");
 
     if (sample.playing) {
       status.textContent = sample.waiting
         ? `当前缓存不足，已保留 ${formatBufferClock(bufferAhead)}，正在继续读取原画…`
-        : `前方已缓存 ${formatBufferClock(bufferAhead)}，正在播放原画。`;
+        : `前方已缓存 ${formatBufferClock(bufferAhead)}，播放时持续预读约 ${formatBufferClock(playbackTarget)}。`;
       bufferedPlay.disabled = true;
       bufferedPlay.textContent = "正在播放";
       playNow.hidden = true;
@@ -648,10 +739,11 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
       playNow.hidden = true;
     } else {
       const estimate = wait === null ? "正在测量线路速度" : `预计还需约 ${formatBufferClock(wait)}`;
-      status.textContent = `前方已缓存 ${formatBufferClock(bufferAhead)} / 建议 ${formatBufferClock(target)} · ${estimate}`;
+      status.textContent = `前方已缓存 ${formatBufferClock(bufferAhead)} / 建议 ${formatBufferClock(startupTarget)} · ${estimate}`;
       bufferedPlay.disabled = true;
       bufferedPlay.textContent = "正在预缓存";
     }
+    maybeStartReadAhead({ duration, currentTime, bufferedEnd, target: playbackTarget, now });
   };
 
   bufferedPlay.addEventListener("click", startPlayback);
@@ -660,16 +752,21 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     sample.initialEnd = bufferedEndAtCurrentTime(video);
     sample.lastBufferedEnd = sample.initialEnd;
     sample.lastProgressAt = performance.now();
+    readAhead.prefetchedThrough = 0;
     update();
   });
   video.addEventListener("progress", update);
   video.addEventListener("canplay", () => { sample.waiting = false; update(); });
   video.addEventListener("stalled", update);
-  video.addEventListener("waiting", () => { sample.waiting = true; update(); });
+  video.addEventListener("suspend", update);
+  video.addEventListener("waiting", () => { abortReadAhead(); sample.waiting = true; update(); });
   video.addEventListener("play", () => { sample.playing = true; update(); });
   video.addEventListener("playing", () => { sample.playing = true; sample.waiting = false; update(); });
-  video.addEventListener("pause", () => { if (!video.ended) { sample.playing = false; update(); } });
+  video.addEventListener("pause", () => { if (!video.ended) { abortReadAhead(); sample.playing = false; update(); } });
+  video.addEventListener("ended", abortReadAhead);
   video.addEventListener("seeking", () => {
+    abortReadAhead();
+    readAhead.prefetchedThrough = 0;
     sample.lastBufferedEnd = bufferedEndAtCurrentTime(video);
     sample.lastProgressAt = performance.now();
     sample.stalled = false;
@@ -717,7 +814,16 @@ async function openHighlight(index) {
   try {
     let playback;
     if (canUseDirectLocalPlayback(item) && url) {
-      playback = { url, source: "local", expiresIn: null };
+      const candidates = localPlaybackCandidates(url, {
+        pageOrigin: window.location.origin,
+        directOrigin: state.highlightStorage.directMediaOrigin
+      });
+      playback = {
+        url: candidates.find((candidate) => candidate.id === "site-proxy")?.url || url,
+        source: "local",
+        expiresIn: null,
+        candidates
+      };
     } else {
       const parameters = new URLSearchParams({ filename: item.filename, source: item.storageSource || "default" });
       if (item.playbackId) parameters.set("id", item.playbackId);
