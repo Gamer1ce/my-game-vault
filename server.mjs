@@ -373,30 +373,20 @@ app.delete("/api/admin/session", (req, res) => {
   res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
   res.status(204).end();
 });
-function mediaSleepingResponse(res) {
-  res.set({ "Cache-Control": "no-store", "Retry-After": "60" });
-  return res.status(503).json({ error: "精彩时刻媒体服务正在休眠" });
-}
-
 app.get("/api/media/power", (_req, res) => res.json(mediaPower.status()));
 app.put("/api/media/power", (req, res) => {
   if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站管理请求" });
-  if (!visitorWriteAllowed(req, "media-power", { limit: 12, windowMs: 60_000 })) {
+  if (!visitorWriteAllowed(req, "media-power", { limit: 60, windowMs: 60_000 })) {
     return res.status(429).json({ error: "切换太频繁，请稍后再试" });
   }
   const mode = String(req.body?.mode || "");
-  if (!MEDIA_POWER_MODES.has(mode)) return res.status(400).json({ error: "媒体服务状态无效" });
+  if (!MEDIA_POWER_MODES.has(mode)) return res.status(400).json({ error: "展示状态无效" });
   const current = mediaPower.status();
   if (current.mode === mode) return res.json(current);
-  const changedAt = Date.parse(current.updatedAt || "");
-  if (Number.isFinite(changedAt) && Date.now() - changedAt < 5_000) {
-    return res.status(429).json({ error: "媒体服务刚刚切换过，请稍后再试" });
-  }
   return res.json(mediaPower.set(mode));
 });
 
 app.get("/media/highlight-posters/:filename", async (req, res) => {
-  if (mediaPower.status().sleeping) return mediaSleepingResponse(res);
   const filename = String(req.params.filename || "");
   const extension = path.extname(filename).toLowerCase();
   if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightVideoFormats.includes(extension)) return res.status(404).end();
@@ -435,10 +425,6 @@ app.options("/media/highlights/:filename", (_req, res) => {
   res.status(204).end();
 });
 app.get("/media/highlights/:filename", (req, res) => {
-  if (mediaPower.status().sleeping) {
-    setPublicMediaCors(res);
-    return mediaSleepingResponse(res);
-  }
   const filename = String(req.params.filename || "");
   if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) return res.status(404).end();
   try {
@@ -1150,20 +1136,6 @@ app.post("/api/sync/all", async (_req, res, next) => {
 
 app.get("/api/highlights", async (_req, res) => {
   const power = mediaPower.status();
-  if (power.sleeping) {
-    return res.json({
-      highlights: [],
-      total: 0,
-      available: true,
-      customDirectory: false,
-      remoteEnabled: remoteMedia.isEnabled(),
-      remoteCount: 0,
-      baiduEnabled: baiduStream.isEnabled(),
-      baiduCount: 0,
-      directMediaOrigin,
-      mediaPower: power
-    });
-  }
   const storage = resolveHighlightsDirectory(dataDir);
   let available = false;
   try { available = statSync(storage.directory).isDirectory(); } catch { available = false; }
@@ -1191,7 +1163,6 @@ app.get("/api/highlights", async (_req, res) => {
 });
 
 app.get("/api/highlights/playback", async (req, res) => {
-  if (mediaPower.status().sleeping) return mediaSleepingResponse(res);
   const filename = String(req.query.filename || "");
   const storageSource = String(req.query.source || "default");
   if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) {

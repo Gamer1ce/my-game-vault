@@ -77,7 +77,7 @@ function renderMediaPower() {
   button.classList.toggle("is-sleeping", sleeping);
   button.querySelector("span").textContent = sleeping ? "休眠中" : "运行中";
   button.setAttribute("aria-pressed", String(sleeping));
-  button.setAttribute("aria-label", `精彩时刻媒体服务${sleeping ? "休眠中，单击切换为运行中" : "运行中，单击切换为休眠中"}`);
+  button.setAttribute("aria-label", `展示状态${sleeping ? "休眠中，单击切换为运行中" : "运行中，单击切换为休眠中"}`);
 }
 
 async function loadMediaPower() {
@@ -88,14 +88,7 @@ async function loadMediaPower() {
 async function refreshMediaPower() {
   const button = $("#mediaPowerButton");
   if (button.disabled) return;
-  const previousMode = state.mediaPower.mode;
   await loadMediaPower();
-  if (state.mediaPower.mode === previousMode) return;
-  if (state.mediaPower.sleeping) {
-    $("#highlightDialog").close();
-    stopHighlightBufferTimer();
-  }
-  await loadHighlights();
 }
 
 async function loadSecurity() {
@@ -525,10 +518,7 @@ function renderHighlights() {
   collapse.classList.toggle("hidden", visibleCount <= HIGHLIGHT_INITIAL_COUNT);
   const emptyTitle = $("#highlightEmpty strong");
   const emptyMessage = $("#highlightEmpty p");
-  if (state.mediaPower.sleeping) {
-    emptyTitle.textContent = "媒体节点正在休眠";
-    emptyMessage.textContent = "页面底部的状态按钮可以重新唤醒精彩时刻。";
-  } else if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
+  if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
     emptyTitle.textContent = "外置媒体库未连接";
     emptyMessage.textContent = "连接保存精彩时刻的外置硬盘，然后刷新页面。";
   } else if (entries.length === 0 && state.highlights.length > 0) {
@@ -992,12 +982,8 @@ $("#mediaPowerButton").addEventListener("click", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode: nextMode })
     });
-    if (state.mediaPower.sleeping) {
-      $("#highlightDialog").close();
-      stopHighlightBufferTimer();
-    }
-    await loadHighlights();
-    toast(state.mediaPower.sleeping ? "精彩时刻已进入休眠" : "精彩时刻已恢复运行");
+    renderMediaPower();
+    toast(state.mediaPower.sleeping ? "展示状态已切换为休眠中" : "展示状态已切换为运行中");
   } catch (error) {
     toast(error.message);
     await loadMediaPower().catch(() => {});

@@ -4,7 +4,7 @@ import path from "node:path";
 export const MEDIA_POWER_MODES = new Set(["running", "sleeping"]);
 
 export function createMediaPowerStore({ dataDirectory, logger = console } = {}) {
-  if (!dataDirectory) throw new Error("媒体服务状态缺少数据目录");
+  if (!dataDirectory) throw new Error("展示状态缺少数据目录");
   const runtimeDirectory = path.join(dataDirectory, "runtime");
   const stateFile = path.join(runtimeDirectory, "media-power.json");
   let current = { mode: "running", updatedAt: null };
@@ -18,8 +18,8 @@ export function createMediaPowerStore({ dataDirectory, logger = console } = {}) 
         updatedAt: typeof saved.updatedAt === "string" ? saved.updatedAt : null
       };
     } catch {
-      current = { mode: "sleeping", updatedAt: null };
-      logger.warn?.("媒体服务状态文件损坏，已安全进入休眠模式");
+      current = { mode: "running", updatedAt: null };
+      logger.warn?.("展示状态文件损坏，已恢复默认运行状态");
     }
   }
 
@@ -28,7 +28,7 @@ export function createMediaPowerStore({ dataDirectory, logger = console } = {}) 
       return { ...current, sleeping: current.mode === "sleeping" };
     },
     set(mode) {
-      if (!MEDIA_POWER_MODES.has(mode)) throw new TypeError("媒体服务状态无效");
+      if (!MEDIA_POWER_MODES.has(mode)) throw new TypeError("展示状态无效");
       mkdirSync(runtimeDirectory, { recursive: true });
       const next = { mode, updatedAt: new Date().toISOString() };
       const temporary = `${stateFile}.${process.pid}.${Date.now()}.tmp`;
