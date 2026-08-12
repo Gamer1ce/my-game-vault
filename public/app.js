@@ -28,7 +28,7 @@ const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 const HIGHLIGHT_INITIAL_COUNT = 4;
 const HIGHLIGHT_PAGE_SIZE = 8;
-const state = { games: [], highlights: [], highlightFilter: "video", visibleHighlights: { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT }, highlightStorage: { available: true, customDirectory: false }, recentActivity: { days: [], totalMinutes: 0 }, guestbook: { messages: [], likes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const state = { games: [], highlights: [], highlightFilter: "video", visibleHighlights: { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT }, highlightStorage: { available: true, customDirectory: false }, mediaPower: { mode: "running", sleeping: false }, recentActivity: { days: [], totalMinutes: 0 }, guestbook: { messages: [], likes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
@@ -68,7 +68,35 @@ function renderSecurity() {
   $("#feedbackInboxButton").classList.toggle("hidden", !state.security.canManage);
   $("#adminButton").classList.toggle("hidden", !state.security.publicMode || (!state.security.canManage && !state.security.adminAvailable));
   $("#adminButton").textContent = state.security.canManage ? "退出管理" : "管理员登录";
+  renderMediaPower();
   renderProviders();
+}
+
+function renderMediaPower() {
+  const button = $("#mediaPowerButton");
+  const sleeping = state.mediaPower.mode === "sleeping";
+  button.classList.toggle("is-sleeping", sleeping);
+  button.querySelector("span").textContent = sleeping ? "休眠中" : "运行中";
+  button.setAttribute("aria-pressed", String(sleeping));
+  button.setAttribute("aria-label", `精彩时刻媒体服务${sleeping ? "休眠中，单击切换为运行中" : "运行中，单击切换为休眠中"}`);
+}
+
+async function loadMediaPower() {
+  state.mediaPower = await api("/api/media/power");
+  renderMediaPower();
+}
+
+async function refreshMediaPower() {
+  const button = $("#mediaPowerButton");
+  if (button.disabled) return;
+  const previousMode = state.mediaPower.mode;
+  await loadMediaPower();
+  if (state.mediaPower.mode === previousMode) return;
+  if (state.mediaPower.sleeping) {
+    $("#highlightDialog").close();
+    stopHighlightBufferTimer();
+  }
+  await loadHighlights();
 }
 
 async function loadSecurity() {
@@ -498,7 +526,10 @@ function renderHighlights() {
   collapse.classList.toggle("hidden", visibleCount <= HIGHLIGHT_INITIAL_COUNT);
   const emptyTitle = $("#highlightEmpty strong");
   const emptyMessage = $("#highlightEmpty p");
-  if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
+  if (state.mediaPower.sleeping) {
+    emptyTitle.textContent = "媒体节点正在休眠";
+    emptyMessage.textContent = "页面底部的状态按钮可以重新唤醒精彩时刻。";
+  } else if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
     emptyTitle.textContent = "外置媒体库未连接";
     emptyMessage.textContent = "连接保存精彩时刻的外置硬盘，然后刷新页面。";
   } else if (entries.length === 0 && state.highlights.length > 0) {
@@ -518,6 +549,7 @@ function renderHighlights() {
 
 async function loadHighlights() {
   const result = await api("/api/highlights");
+  if (result.mediaPower) state.mediaPower = result.mediaPower;
   state.highlights = arrangeHighlightsForPlayback(Array.isArray(result.highlights) ? result.highlights : []);
   const counts = highlightCounts(state.highlights);
   state.highlightFilter = counts.video > 0 || counts.image === 0 ? "video" : "image";
@@ -530,6 +562,7 @@ async function loadHighlights() {
     directMediaOrigin: typeof result.directMediaOrigin === "string" ? result.directMediaOrigin : null
   };
   renderHighlights();
+  renderMediaPower();
 }
 
 let highlightPlaybackRequest = 0;
@@ -950,6 +983,30 @@ $("#highlightCollapse").addEventListener("click", () => {
   requestAnimationFrame(() => $("#highlights").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
 });
 $("#highlightDialog").addEventListener("close", () => { highlightPlaybackRequest += 1; stopHighlightBufferTimer(); const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
+$("#mediaPowerButton").addEventListener("click", async () => {
+  const button = $("#mediaPowerButton");
+  const nextMode = state.mediaPower.mode === "sleeping" ? "running" : "sleeping";
+  button.disabled = true;
+  try {
+    state.mediaPower = await api("/api/media/power", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: nextMode })
+    });
+    if (state.mediaPower.sleeping) {
+      $("#highlightDialog").close();
+      stopHighlightBufferTimer();
+    }
+    await loadHighlights();
+    toast(state.mediaPower.sleeping ? "精彩时刻已进入休眠" : "精彩时刻已恢复运行");
+  } catch (error) {
+    toast(error.message);
+    await loadMediaPower().catch(() => {});
+  } finally {
+    button.disabled = false;
+    renderMediaPower();
+  }
+});
 $("#tabs").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#tabs .active").classList.remove("active"); button.classList.add("active"); state.platform = button.dataset.platform; render(); });
 $("#search").addEventListener("input", (event) => { state.query = event.target.value.trim().toLowerCase(); render(); });
 
@@ -1209,4 +1266,5 @@ window.addEventListener("scroll", () => {
   }
 }, { passive: true });
 
-loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights(), loadRecentActivity(), loadGuestbook()])).catch((error) => toast(error.message));
+loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights(), loadRecentActivity(), loadGuestbook(), loadMediaPower()])).catch((error) => toast(error.message));
+window.setInterval(() => refreshMediaPower().catch(() => {}), 30_000);

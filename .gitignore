@@ -19,4 +19,5 @@ aliyun-esa/baidu-media-proxy/.env
 data/backups/
 data/highlights/
 data/highlight-posters/
+data/runtime/
 .DS_Store
