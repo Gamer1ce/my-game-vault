@@ -21,7 +21,6 @@ import {
   normalizeHighlightType
 } from "./highlight-gallery.js?v=20260810-1";
 import { createHeroSequence } from "./hero-sequence.js?v=20260718-1";
-import { detectFastDownScroll } from "./fast-scroll.js?v=20260719-1";
 import { createBirthdayHintCycle } from "./birthday-hint.js?v=20260724-1";
 
 const now = new Date();
@@ -1149,51 +1148,12 @@ $("#adminForm").addEventListener("submit", async (event) => {
 
 const quickTopButton = $("#quickTopButton");
 const quickBottomButton = $("#quickBottomButton");
-let quickTopTimer;
-let quickBottomTimer;
-let scrollWindowStartY = window.scrollY;
-let scrollWindowStartAt = performance.now();
-let ignoreFastScrollUntil = 0;
-
-function hideQuickTop() {
-  quickTopButton.classList.remove("is-visible");
-  quickTopButton.setAttribute("aria-hidden", "true");
-  quickTopButton.tabIndex = -1;
-}
-
-function hideQuickBottom() {
-  quickBottomButton.classList.remove("is-visible");
-  quickBottomButton.setAttribute("aria-hidden", "true");
-  quickBottomButton.tabIndex = -1;
-}
-
-function showQuickTop() {
-  quickTopButton.classList.add("is-visible");
-  quickTopButton.setAttribute("aria-hidden", "false");
-  quickTopButton.tabIndex = 0;
-  clearTimeout(quickTopTimer);
-  quickTopTimer = setTimeout(hideQuickTop, 6000);
-}
-
-function showQuickBottom() {
-  quickBottomButton.classList.add("is-visible");
-  quickBottomButton.setAttribute("aria-hidden", "false");
-  quickBottomButton.tabIndex = 0;
-  clearTimeout(quickBottomTimer);
-  quickBottomTimer = setTimeout(hideQuickBottom, 6000);
-}
 
 function returnToTop() {
-  ignoreFastScrollUntil = performance.now() + 1200;
-  hideQuickTop();
-  hideQuickBottom();
   window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
 }
 
 function returnToBottom() {
-  ignoreFastScrollUntil = performance.now() + 1200;
-  hideQuickTop();
-  hideQuickBottom();
   $("#feedback").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 }
 
@@ -1251,20 +1211,6 @@ $("#syncAllFooter").addEventListener("click", async (event) => {
 });
 quickTopButton.addEventListener("click", returnToTop);
 quickBottomButton.addEventListener("click", returnToBottom);
-window.addEventListener("scroll", () => {
-  const time = performance.now();
-  const position = window.scrollY;
-  if (position < 420) hideQuickTop();
-  if (position + window.innerHeight >= $("#feedback").offsetTop) hideQuickBottom();
-  if (time < ignoreFastScrollUntil) return;
-  const fastScroll = detectFastDownScroll({ startY: scrollWindowStartY, startAt: scrollWindowStartAt }, position, time);
-  scrollWindowStartY = fastScroll.startY;
-  scrollWindowStartAt = fastScroll.startAt;
-  if (fastScroll.triggered) {
-    showQuickTop();
-    if (position + window.innerHeight < $("#feedback").offsetTop) showQuickBottom();
-  }
-}, { passive: true });
 
 loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights(), loadRecentActivity(), loadGuestbook(), loadMediaPower()])).catch((error) => toast(error.message));
 window.setInterval(() => refreshMediaPower().catch(() => {}), 30_000);

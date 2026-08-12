@@ -1238,7 +1238,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
 .quick-top {
   position: fixed;
   right: 22px;
-  bottom: calc(82px + env(safe-area-inset-bottom));
+  bottom: calc(132px + env(safe-area-inset-bottom));
   z-index: 110;
   padding: 10px 13px;
   border: 1px solid var(--cyan);
@@ -1246,18 +1246,15 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   background: var(--cyan);
   font-size: 11px;
   font-weight: 900;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateY(12px);
-  transition: opacity 140ms ease, transform 140ms ease;
+  opacity: 1;
+  pointer-events: auto;
   clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
   box-shadow: 6px 6px 0 #000a;
 }
 .quick-top span { margin-right: 4px; font-size: 16px; }
-.quick-top.is-visible { opacity: 1; pointer-events: auto; transform: translateY(0); }
 .quick-top:hover { color: var(--yellow); background: #090a0c; border-color: var(--yellow); }
 .quick-bottom {
-  bottom: calc(132px + env(safe-area-inset-bottom));
+  bottom: calc(82px + env(safe-area-inset-bottom));
   border-color: var(--pink);
   background: var(--pink);
 }
@@ -1349,7 +1346,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .stat-primary .stat-value::before, .section-heading h2::before, .providers h2::before, .feedback-copy h2::before,
   .game:hover::after, .game:hover .game-poster img, .highlight-card:hover .highlight-media img, .highlight-card:hover .highlight-media video { animation: none !important; }
   .signal-overlay, .hero-sequence-text::before, .hero-sequence-text::after, .section-heading h2::before, .providers h2::before, .feedback-copy h2::before { display: none; }
-  .quick-top { transition: none; }
   .danmaku-stage { height: auto; min-height: 58px; display: flex; gap: 7px; overflow-x: auto; padding: 10px; }
   .danmaku-stage::before, .danmaku-stage::after { display: none; }
   .danmaku-lane { position: static; height: auto; flex: 0 0 auto; overflow: visible; }
@@ -1444,5 +1440,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .site-nodes { grid-template-columns: 1fr; }
   .site-nodes-label { justify-items: start; }
   .site-node { border-top: 1px solid var(--line); border-left: 0; }
-  .quick-top { right: 14px; }
+  .quick-top {
+    right: 10px;
+    bottom: calc(106px + env(safe-area-inset-bottom));
+    padding: 8px 10px;
+    font-size: 10px;
+    box-shadow: 4px 4px 0 #000a;
+  }
+  .quick-top span { margin-right: 3px; font-size: 14px; }
+  .quick-bottom { bottom: calc(62px + env(safe-area-inset-bottom)); }
 }
