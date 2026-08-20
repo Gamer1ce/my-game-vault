@@ -48,6 +48,9 @@ function pulseHeroSequence() {
 
 const heroSequence = createHeroSequence({
   glitch: pulseHeroSequence,
+  complete() {
+    window.location.assign("/minecraft.html");
+  },
   transition({ text, state: sequenceState }) {
     heroSequenceText.textContent = text;
     heroSequenceText.dataset.text = text;

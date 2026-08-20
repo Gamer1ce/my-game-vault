@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#fcee0a">
+  <title>Minecraft 节点 // SANCTUARY NEXUS</title>
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32-v3.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css?v=20260812-3">
+  <link rel="stylesheet" href="/minecraft.css?v=20260820-3">
+</head>
+<body class="minecraft-page">
+  <div class="signal-overlay" aria-hidden="true"></div>
+  <header class="mc-hero">
+    <nav>
+      <a class="brand mc-brand" href="/" aria-label="返回中枢圣殿"><b>SANCTUARY//NEXUS</b><small>返回游戏档案</small></a>
+      <a class="ghost mc-back" href="/" aria-label="返回原网站页面">← 返回原网站</a>
+    </nav>
+    <div class="mc-hero-grid">
+      <div class="mc-hero-copy">
+        <span class="hero-kicker">/// LIVE MINECRAFT NODE // TELEMETRY</span>
+        <div class="mc-status-line"><span class="mc-status-dot" id="statusDot"></span><strong id="statusLabel">正在建立连接</strong><small id="lastUpdated">等待数据</small></div>
+        <h1 data-text="SERVER//NODE">SERVER//NODE</h1>
+        <p class="mc-pack-name" id="packName">香草纪元：食旅纪行</p>
+        <p class="mc-motd" id="motd">正在读取服务器广播……</p>
+        <div class="mc-connect-row">
+          <code id="serverAddress">[240e:331:2279:c410:495:6182:febf:b47e]:47060</code>
+          <button id="copyAddress" type="button">复制连接地址</button>
+        </div>
+      </div>
+      <div class="mc-end-scene" aria-hidden="true">
+        <div class="mc-end-crystal">
+          <div class="mc-crystal-float">
+            <div class="mc-crystal-cube mc-crystal-cage mc-crystal-cage-outer">
+              <i class="front"></i><i class="back"></i><i class="right"></i><i class="left"></i><i class="top"></i><i class="bottom"></i>
+            </div>
+            <div class="mc-crystal-cube mc-crystal-cage mc-crystal-cage-inner">
+              <i class="front"></i><i class="back"></i><i class="right"></i><i class="left"></i><i class="top"></i><i class="bottom"></i>
+            </div>
+            <div class="mc-crystal-cube mc-crystal-core">
+              <i class="front"></i><i class="back"></i><i class="right"></i><i class="left"></i><i class="top"></i><i class="bottom"></i>
+            </div>
+          </div>
+          <div class="mc-crystal-shadow"></div>
+          <div class="mc-crystal-base"><span></span><span></span><span></span></div>
+        </div>
+        <div class="mc-crystal-readout"><small>END CRYSTAL // ACTIVE</small><b>PORT // 47060</b></div>
+      </div>
+    </div>
+    <div class="hero-telemetry"><span>SYS.MINECRAFT_NODE</span><span>LIVE_PULSE // 05 SEC</span><span id="telemetryState">LINK // PENDING</span></div>
+  </header>
+
+  <main class="mc-main">
+    <section class="mc-vitals" aria-label="服务器核心状态">
+      <article class="mc-vital mc-vital-primary"><small>在线玩家</small><strong><span id="onlinePlayers">—</span><em id="maxPlayers">/ —</em></strong><p>当前世界中的旅人</p></article>
+      <article class="mc-vital"><small>服务器延迟</small><strong><span id="serverLatency">—</span><em>ms</em></strong><p>网站节点至游戏端口</p></article>
+      <article class="mc-vital"><small>TPS</small><strong><span id="serverTps">—</span><em>/ 20</em></strong><p id="tpsState">等待 JVM 采样</p></article>
+      <article class="mc-vital"><small>MSPT</small><strong><span id="serverMspt">—</span><em>ms</em></strong><p>每个游戏刻平均耗时</p></article>
+      <article class="mc-vital"><small>运行时间</small><strong class="mc-uptime" id="uptime">—</strong><p>本次世界进程</p></article>
+      <article class="mc-vital"><small>JVM 内存</small><strong><span id="memoryUsed">—</span><em id="memoryMax">/ — GB</em></strong><p>当前使用 / 上限</p></article>
+    </section>
+
+    <section class="mc-panel-grid">
+      <article class="mc-panel mc-players-panel">
+        <div class="mc-panel-head"><div><span>PLAYER SIGNALS</span><h2 data-text="在线玩家">在线玩家</h2></div><strong id="playerCountBadge">00</strong></div>
+        <div class="mc-player-list" id="playerList"><p class="mc-empty">等待玩家信号……</p></div>
+      </article>
+
+      <article class="mc-panel mc-performance-panel">
+        <div class="mc-panel-head"><div><span>TICK ENGINE</span><h2 data-text="运行状态">运行状态</h2></div><strong id="healthBadge">SCAN</strong></div>
+        <div class="mc-gauge"><div class="mc-gauge-fill" id="tpsGauge"></div><i></i></div>
+        <div class="mc-thresholds"><span>过载</span><span>警戒</span><span>稳定</span></div>
+        <dl class="mc-details">
+          <div><dt>游戏版本</dt><dd id="gameVersion">—</dd></div>
+          <div><dt>服务端</dt><dd id="modLoader">—</dd></div>
+          <div><dt>协议版本</dt><dd id="protocolVersion">—</dd></div>
+          <div><dt>性能采样</dt><dd id="metricsUpdated">—</dd></div>
+        </dl>
+      </article>
+    </section>
+
+    <section class="mc-terminal" aria-live="polite">
+      <span>NODE EVENT STREAM</span>
+      <p id="nodeMessage">正在从本机 Minecraft 节点读取状态。</p>
+    </section>
+  </main>
+  <script type="module" src="/minecraft.js?v=20260820-1"></script>
+</body>
+</html>

@@ -30,6 +30,12 @@ services:
       AZURE_SYNC_REQUEST_STATE_DIR: /data/runtime
       GAME_VAULT_ADMIN_FILE: /data/admin-access.json
       GAME_VAULT_LOCAL_ORIGIN: http://127.0.0.1:4173
+      MINECRAFT_STATUS_HOST: host.docker.internal
+      MINECRAFT_STATUS_PORT: "47060"
+      MINECRAFT_METRICS_FILE: /minecraft-status/status.json
+      MINECRAFT_PACK_NAME: "香草纪元：食旅纪行"
+      MINECRAFT_PACK_VERSION: "2.7.1"
+      MINECRAFT_PUBLIC_ADDRESS: "[240e:331:2279:c410:495:6182:febf:b47e]:47060"
     volumes:
       - type: bind
         source: "${GAME_VAULT_DATA_DIR:-./data}"
@@ -45,6 +51,10 @@ services:
       - type: bind
         source: "${SSH_KNOWN_HOSTS_PATH:-/Users/gamer1ce/.ssh/known_hosts}"
         target: /home/node/.ssh/known_hosts
+        read_only: true
+      - type: bind
+        source: "${MINECRAFT_METRICS_DIR:-/Users/gamer1ce/.local/share/game-vault-minecraft}"
+        target: /minecraft-status
         read_only: true
     extra_hosts:
       - "host.docker.internal:host-gateway"

@@ -5,10 +5,12 @@ export const HERO_SEQUENCE_STEPS = Object.freeze([
 ]);
 
 export const HERO_SEQUENCE_LOOP_MS = 4600;
+export const HERO_SEQUENCE_COMPLETE_MS = 5800;
 
 export function createHeroSequence({
   transition,
   glitch,
+  complete = () => {},
   schedule = globalThis.setTimeout,
   repeat = globalThis.setInterval
 }) {
@@ -27,6 +29,7 @@ export function createHeroSequence({
           if (step.state === "connected") repeat(glitch, HERO_SEQUENCE_LOOP_MS);
         }, step.at);
       }
+      schedule(complete, HERO_SEQUENCE_COMPLETE_MS);
       return true;
     }
   };

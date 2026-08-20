@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Premain-Class: gamevault.minecraft.MinecraftMetricsAgent
+Agent-Class: gamevault.minecraft.MinecraftMetricsAgent
+Can-Redefine-Classes: false
+Can-Retransform-Classes: false

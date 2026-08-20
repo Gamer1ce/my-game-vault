@@ -74,6 +74,29 @@ docker compose up -d --build
 npm test
 ```
 
+### Minecraft 节点状态页
+
+首页完成 `PRESS START` 接入序列后会进入 `/minecraft.html`。该页面每 5 秒读取一次只读状态接口 `/api/minecraft/status`，显示服务器在线状态、玩家人数、延迟、版本、TPS、MSPT、运行时间和 JVM 内存；右上角“返回原网站”按钮会回到游戏档案首页。页面装饰采用纯 CSS 末地水晶：双层玻璃笼与粉紫核心分别旋转，水晶整体持续上下漂浮，移动端会隐藏装饰以免挤压状态信息。
+
+Docker 可通过以下环境变量连接本机 Minecraft 服务：
+
+```text
+MINECRAFT_STATUS_HOST=host.docker.internal
+MINECRAFT_STATUS_PORT=47060
+MINECRAFT_METRICS_FILE=/minecraft-status/status.json
+MINECRAFT_PACK_NAME=你的整合包名称
+MINECRAFT_PACK_VERSION=你的整合包版本
+MINECRAFT_PUBLIC_ADDRESS=[你的公网IPv6]:47060
+```
+
+Minecraft 状态协议本身只能提供在线状态、版本、人数和 MOTD。若还需要 TPS、MSPT、运行时间、内存与完整在线玩家延迟，可在服务器启动后执行：
+
+```bash
+zsh scripts/install-minecraft-metrics-agent.zsh
+```
+
+该脚本会把仅负责采样的 Java Agent 接入当前 Forge 1.20.1 进程，并把 `status.json` 写入 `~/.local/share/game-vault-minecraft/`；Compose 只读挂载这个目录，不会向 Minecraft 进程发送管理命令。公网连接地址属于公开信息，制作自己的版本时务必替换示例地址，并确认路由器与系统防火墙只开放确实需要的游戏端口。
+
 ### 自定义主屏幕图标
 
 项目已配置 Web App Manifest、浏览器 favicon 和 iPhone/iPad 的 Apple Touch Icon。当前图标由项目所有者提供的蒸汽波落日图片生成，保留紫色星空、霓虹落日、线框山脉与网格地面；图标本身没有预先裁成圆角，系统会按设备样式自动生成圆角遮罩。

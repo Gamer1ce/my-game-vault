@@ -29,6 +29,7 @@ import { configureOutboundProxy } from "./src/network.mjs";
 import { birthdaySignalActive, birthdayTicketFor } from "./src/birthday-easter-egg.mjs";
 import { openCommunityDatabase } from "./src/community-store.mjs";
 import { createMediaPowerStore, MEDIA_POWER_MODES } from "./src/media-power.mjs";
+import { createMinecraftStatusService } from "./src/minecraft-status.mjs";
 import {
   calibratedFinalMinutes,
   matchPlaystationCalibrationRecord,
@@ -49,6 +50,14 @@ const remoteMedia = createRemoteMediaService({ dataDirectory: dataDir });
 const baiduStream = createBaiduStreamService({ dataDirectory: dataDir });
 const highlightPosters = createHighlightPosterService({ cacheDirectory: path.join(dataDir, "highlight-posters") });
 const mediaPower = createMediaPowerStore({ dataDirectory: dataDir });
+const minecraftStatus = createMinecraftStatusService({
+  host: process.env.MINECRAFT_STATUS_HOST || "host.docker.internal",
+  port: Number(process.env.MINECRAFT_STATUS_PORT || 47060),
+  metricsFile: process.env.MINECRAFT_METRICS_FILE || "",
+  packName: process.env.MINECRAFT_PACK_NAME || "香草纪元：食旅纪行",
+  packVersion: process.env.MINECRAFT_PACK_VERSION || "2.7.1",
+  publicAddress: process.env.MINECRAFT_PUBLIC_ADDRESS || "[240e:331:2279:c410:495:6182:febf:b47e]:47060"
+});
 const playstation = createPlaystationConnector();
 const xbox = createXboxConnector();
 const nintendo = createNintendoConnector();
@@ -374,6 +383,13 @@ app.delete("/api/admin/session", (req, res) => {
   res.status(204).end();
 });
 app.get("/api/media/power", (_req, res) => res.json(mediaPower.status()));
+app.get("/api/minecraft/status", async (_req, res, next) => {
+  try {
+    res.json(await minecraftStatus.status());
+  } catch (error) {
+    next(error);
+  }
+});
 app.put("/api/media/power", (req, res) => {
   if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站管理请求" });
   if (!visitorWriteAllowed(req, "media-power", { limit: 60, windowMs: 60_000 })) {
