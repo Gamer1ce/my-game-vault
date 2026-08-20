@@ -82,3 +82,16 @@ test("Minecraft 状态页使用会漂浮旋转的末地水晶", () => {
   assert.match(css, /@keyframes mc-crystal-spin-inner/);
   assert.match(css, /@keyframes mc-crystal-spin-core/);
 });
+
+test("末地水晶各旋转层保持在上一层内部且不穿模", () => {
+  const css = readFileSync(path.join(root, "public/minecraft.css"), "utf8");
+  const cubeSize = (className) => Number(css.match(new RegExp(`\\.${className} \\{ --cube-size: (\\d+)px`))?.[1]);
+  const outer = cubeSize("mc-crystal-cage-outer");
+  const inner = cubeSize("mc-crystal-cage-inner");
+  const core = cubeSize("mc-crystal-core");
+  assert.ok(outer / 2 - 7 - inner * Math.sqrt(3) / 2 >= 3.5, "内框与外框内壁之间至少保留 3.5px 旋转余量");
+  assert.ok(inner / 2 - 5 - core * Math.sqrt(3) / 2 >= 4, "核心与内框内壁之间至少保留 4px 旋转余量");
+  assert.match(css, /backface-visibility: hidden/);
+  assert.match(css, /\.mc-end-scene \{[^}]*min-height: 410px/);
+  assert.match(css, /0 0 12px #ff2f9fcc/);
+});

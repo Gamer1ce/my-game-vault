@@ -20,12 +20,12 @@
 .mc-connect-row code { display: flex; flex: 1; align-items: center; min-width: 0; padding: 13px 16px; overflow-wrap: anywhere; color: var(--cyan); background: #080a0c; font-family: "Rajdhani", ui-monospace, monospace; font-size: 17px; font-weight: 800; letter-spacing: .035em; }
 .mc-connect-row button { padding: 0 18px; border: 2px solid #080a0c; color: #080a0c; background: transparent; font-weight: 900; }
 .mc-connect-row button:hover { color: #080a0c; background: var(--cyan); }
-.mc-end-scene { position: relative; z-index: 1; align-self: stretch; justify-self: center; width: min(360px, 32vw); min-height: 370px; perspective: 780px; filter: drop-shadow(0 0 20px #d34dff26); }
+.mc-end-scene { position: relative; z-index: 1; align-self: stretch; justify-self: center; width: min(360px, 32vw); min-height: 410px; perspective: 780px; filter: drop-shadow(0 0 20px #d34dff26); }
 .mc-end-scene::before { content: ""; position: absolute; inset: 4% 2% 14%; border: 1px solid #df71ff40; background: repeating-linear-gradient(0deg, transparent 0 27px, #d756ff12 28px 29px); clip-path: polygon(10% 0, 100% 0, 100% 88%, 88% 100%, 0 100%, 0 10%); }
 .mc-end-crystal { position: absolute; inset: 0; transform-style: preserve-3d; }
-.mc-crystal-float { position: absolute; left: 50%; top: 28px; width: 230px; height: 230px; transform: translateX(-50%); transform-style: preserve-3d; animation: mc-crystal-float 3s ease-in-out infinite; }
-.mc-crystal-cube { --cube-size: 100px; position: absolute; left: 50%; top: 50%; width: var(--cube-size); height: var(--cube-size); margin: calc(var(--cube-size) / -2); transform-style: preserve-3d; }
-.mc-crystal-cube i { position: absolute; inset: 0; display: block; box-sizing: border-box; backface-visibility: visible; }
+.mc-crystal-float { position: absolute; left: 50%; top: 14px; width: 230px; height: 230px; transform: translateX(-50%); transform-style: preserve-3d; animation: mc-crystal-float 3s ease-in-out infinite; }
+.mc-crystal-cube { --cube-size: 100px; position: absolute; left: 50%; top: 50%; width: var(--cube-size); height: var(--cube-size); margin: calc(var(--cube-size) / -2); transform-style: preserve-3d; will-change: transform; }
+.mc-crystal-cube i { position: absolute; inset: 0; display: block; box-sizing: border-box; backface-visibility: hidden; }
 .mc-crystal-cube .front { transform: rotateY(0deg) translateZ(calc(var(--cube-size) / 2)); }
 .mc-crystal-cube .back { transform: rotateY(180deg) translateZ(calc(var(--cube-size) / 2)); }
 .mc-crystal-cube .right { transform: rotateY(90deg) translateZ(calc(var(--cube-size) / 2)); }
@@ -33,10 +33,11 @@
 .mc-crystal-cube .top { transform: rotateX(90deg) translateZ(calc(var(--cube-size) / 2)); }
 .mc-crystal-cube .bottom { transform: rotateX(-90deg) translateZ(calc(var(--cube-size) / 2)); }
 .mc-crystal-cage i { border: 7px solid #d9d2e4e6; background: repeating-linear-gradient(90deg, #f6efff24 0 9px, transparent 9px 17px), repeating-linear-gradient(0deg, #d6cbdf1f 0 11px, transparent 11px 20px); box-shadow: inset 0 0 0 2px #6d566e99, inset 0 0 20px #c966ff33; }
-.mc-crystal-cage-outer { --cube-size: 156px; animation: mc-crystal-spin-outer 8s linear infinite; }
-.mc-crystal-cage-inner { --cube-size: 108px; animation: mc-crystal-spin-inner 5.6s linear infinite reverse; }
-.mc-crystal-core { --cube-size: 52px; animation: mc-crystal-spin-core 4s linear infinite; }
-.mc-crystal-core i { border: 3px solid #ffd0f1cc; background: repeating-linear-gradient(0deg, #ff5bb4 0 10px, #d71e79 10px 15px); box-shadow: inset 0 0 14px #fff8, 0 0 18px #ff2f9fcc; }
+.mc-crystal-cage-outer { --cube-size: 174px; animation: mc-crystal-spin-outer 8s linear infinite; }
+.mc-crystal-cage-inner { --cube-size: 88px; animation: mc-crystal-spin-inner 5.6s linear infinite reverse; }
+.mc-crystal-cage-inner i { border-width: 5px; }
+.mc-crystal-core { --cube-size: 40px; animation: mc-crystal-spin-core 4s linear infinite; }
+.mc-crystal-core i { border: 3px solid #ffd0f1cc; background: repeating-linear-gradient(0deg, #ff5bb4 0 10px, #d71e79 10px 15px); box-shadow: inset 0 0 12px #fff8, 0 0 12px #ff2f9fcc; }
 .mc-crystal-shadow { position: absolute; left: 50%; bottom: 86px; width: 130px; height: 24px; transform: translateX(-50%); border-radius: 50%; background: #050207b8; box-shadow: 0 0 20px 8px #d834ff42; animation: mc-crystal-shadow 3s ease-in-out infinite; }
 .mc-crystal-base { position: absolute; left: 50%; bottom: 38px; width: 230px; transform: translateX(-50%); }
 .mc-crystal-base span { display: block; height: 18px; margin: 0 auto 4px; border-top: 2px solid #463a55; border-left: 2px solid #2b2136; background: repeating-linear-gradient(90deg, #100d15 0 18px, #21182a 18px 34px, #08070a 34px 40px); box-shadow: 8px 8px 0 #030304; }
