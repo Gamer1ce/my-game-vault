@@ -39,7 +39,7 @@ test("精彩时刻在加载时随机排列且不修改原始清单", () => {
   assert.deepEqual(shuffled.map(({ filename }) => filename), ["shot.png", "clip-2.mp4", "notes.txt", "clip.webm"]);
 });
 
-test("不超过 96 MiB 的视频整体随机，同时避免首屏被超大文件占满", () => {
+test("视频不再按文件大小分组，所有精彩时刻使用同一次随机洗牌", () => {
   const megabyte = 1024 * 1024;
   const items = [
     { filename: "huge.mp4", type: "video", size: 400 * megabyte },
@@ -52,14 +52,14 @@ test("不超过 96 MiB 的视频整体随机，同时避免首屏被超大文件
     { filename: "shot-b.png", type: "image", size: 1 * megabyte }
   ];
   const original = items.map((item) => ({ ...item }));
-  const arranged = arrangeHighlightsForPlayback(items, () => 0);
+  const arranged = arrangeHighlightsForPlayback(items, () => 0.999999);
   assert.deepEqual(arranged.filter((item) => item.type === "video").map((item) => item.filename), [
+    "huge.mp4",
+    "small-a.mp4",
     "small-b.webm",
     "medium.mp4",
     "boundary.mp4",
-    "small-a.mp4",
-    "over-boundary.mp4",
-    "huge.mp4"
+    "over-boundary.mp4"
   ]);
   assert.deepEqual(items, original);
   assert.deepEqual(new Set(arranged.filter((item) => item.type === "image").map((item) => item.filename)), new Set(["shot-a.png", "shot-b.png"]));

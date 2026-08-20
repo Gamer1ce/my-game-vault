@@ -20,29 +20,8 @@ export function shuffleHighlights(items = [], random = Math.random) {
   return shuffled;
 }
 
-const PLAYBACK_SIZE_BANDS = [96, 256].map((megabytes) => megabytes * 1024 * 1024);
-
-function playbackSizeBand(item) {
-  const size = Number(item?.size);
-  if (!Number.isFinite(size) || size <= 0) return PLAYBACK_SIZE_BANDS.length;
-  const band = PLAYBACK_SIZE_BANDS.findIndex((limit) => size <= limit);
-  return band === -1 ? PLAYBACK_SIZE_BANDS.length : band;
-}
-
 export function arrangeHighlightsForPlayback(items = [], random = Math.random) {
-  const videoBands = Array.from({ length: PLAYBACK_SIZE_BANDS.length + 1 }, () => []);
-  const images = [];
-  const unknown = [];
-  for (const item of items) {
-    if (item?.type === "video") videoBands[playbackSizeBand(item)].push(item);
-    else if (item?.type === "image") images.push(item);
-    else unknown.push(item);
-  }
-  return [
-    ...videoBands.flatMap((band) => shuffleHighlights(band, random)),
-    ...shuffleHighlights(images, random),
-    ...shuffleHighlights(unknown, random)
-  ];
+  return shuffleHighlights(items, random);
 }
 
 export function canUseDirectLocalPlayback(item) {

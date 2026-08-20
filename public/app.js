@@ -19,7 +19,7 @@ import {
   filteredHighlightEntries,
   highlightCounts,
   normalizeHighlightType
-} from "./highlight-gallery.js?v=20260810-1";
+} from "./highlight-gallery.js?v=20260820-2";
 import { createHeroSequence } from "./hero-sequence.js?v=20260718-1";
 import { createBirthdayHintCycle } from "./birthday-hint.js?v=20260724-1";
 
