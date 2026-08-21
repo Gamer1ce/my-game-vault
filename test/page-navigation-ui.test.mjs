@@ -11,7 +11,7 @@ const styles = readFileSync(path.join(root, "public/styles.css"), "utf8");
 
 test("顶部和底部导航按钮始终可见且可聚焦", () => {
   assert.match(html, /id="quickTopButton"[^>]*aria-label="快速回到顶部"/);
-  assert.match(html, /id="quickBottomButton"[^>]*aria-label="快速前往页面底部/);
+  assert.match(html, /id="quickBottomButton"[^>]*aria-label="快速前往页面最底部/);
   assert.doesNotMatch(html, /id="quick(?:Top|Bottom)Button"[^>]*(?:aria-hidden="true"|tabindex="-1")/);
   assert.match(styles, /\.quick-top\s*\{[\s\S]*?bottom:\s*calc\(132px[\s\S]*?opacity:\s*1;[\s\S]*?pointer-events:\s*auto;/);
   assert.match(styles, /\.quick-bottom\s*\{\s*bottom:\s*calc\(82px/);
@@ -21,6 +21,15 @@ test("页面导航不再依赖快速滚动检测或自动隐藏", () => {
   assert.doesNotMatch(script, /detectFastDownScroll|quickTopTimer|quickBottomTimer|hideQuickTop|hideQuickBottom/);
   assert.match(script, /quickTopButton\.addEventListener\("click", returnToTop\)/);
   assert.match(script, /quickBottomButton\.addEventListener\("click", returnToBottom\)/);
+});
+
+test("底部按钮一次跳到真实页尾且不会触发游戏批次自动追加", () => {
+  assert.match(script, /function returnToBottom\(\)[\s\S]*?pauseGameAutoLoadUntil = performance\.now\(\) \+ 1500;/);
+  assert.match(script, /scroller\.style\.scrollBehavior = "auto"/);
+  assert.match(script, /scroller\.scrollTop = scroller\.scrollHeight/);
+  assert.match(script, /scroller\.style\.scrollBehavior = previousScrollBehavior/);
+  assert.doesNotMatch(script, /function returnToBottom\(\)[\s\S]{0,300}#feedback/);
+  assert.match(script, /if \(performance\.now\(\) < pauseGameAutoLoadUntil\) return;/);
 });
 
 test("移动端使用更紧凑的导航按钮并保持顶部按钮在上方", () => {

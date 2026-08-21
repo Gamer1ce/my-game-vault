@@ -29,6 +29,7 @@ const HIGHLIGHT_INITIAL_COUNT = 4;
 const HIGHLIGHT_PAGE_SIZE = 8;
 const GAME_INITIAL_COUNT = 36;
 const GAME_BATCH_SIZE = 36;
+let pauseGameAutoLoadUntil = 0;
 const state = { games: [], visibleGames: GAME_INITIAL_COUNT, highlights: [], highlightFilter: "video", visibleHighlights: { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT }, highlightStorage: { available: true, customDirectory: false }, mediaPower: { mode: "running", sleeping: false }, recentActivity: { days: [], totalMinutes: 0 }, guestbook: { messages: [], likes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
 let mediaPowerLoaded = false;
@@ -1052,6 +1053,7 @@ $("#search").addEventListener("input", (event) => {
 $("#gameLoadMore").addEventListener("click", loadNextGameBatch);
 if ("IntersectionObserver" in window) {
   const gameLoadObserver = new IntersectionObserver((entries) => {
+    if (performance.now() < pauseGameAutoLoadUntil) return;
     if (entries.some((entry) => entry.isIntersecting) && !$("#gameLoadMore").classList.contains("hidden")) loadNextGameBatch();
   }, { rootMargin: "1000px 0px" });
   gameLoadObserver.observe($("#gameLoadMore"));
@@ -1202,7 +1204,21 @@ function returnToTop() {
 }
 
 function returnToBottom() {
-  $("#feedback").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+  pauseGameAutoLoadUntil = performance.now() + 1500;
+  const scroller = document.scrollingElement || document.documentElement;
+  const previousScrollBehavior = scroller.style.scrollBehavior;
+  scroller.style.scrollBehavior = "auto";
+  void scroller.offsetHeight;
+  const jump = () => {
+    scroller.scrollTop = scroller.scrollHeight;
+  };
+  jump();
+  requestAnimationFrame(() => {
+    jump();
+    requestAnimationFrame(() => {
+      scroller.style.scrollBehavior = previousScrollBehavior;
+    });
+  });
 }
 
 $("#backToTopFooter").addEventListener("click", returnToTop);
