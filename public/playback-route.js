@@ -1,6 +1,6 @@
-export const PLAYBACK_ROUTE_SAMPLE_BYTES = 256 * 1024;
+export const PLAYBACK_ROUTE_SAMPLE_BYTES = 96 * 1024;
 export const PLAYBACK_ROUTE_CACHE_KEY = "game-vault:baidu-media-route:v1";
-export const PLAYBACK_ROUTE_CACHE_TTL_MS = 10 * 60 * 1000;
+export const PLAYBACK_ROUTE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 export function playbackCandidates(playback) {
   const candidates = Array.isArray(playback?.candidates) ? playback.candidates : [];
@@ -62,7 +62,7 @@ export function savePreferredPlaybackRoute(storage, candidate) {
 export async function measurePlaybackCandidate(candidate, {
   fetchImpl = fetch,
   sampleBytes = PLAYBACK_ROUTE_SAMPLE_BYTES,
-  timeoutMs = 9000
+  timeoutMs = 2500
 } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -71,7 +71,7 @@ export async function measurePlaybackCandidate(candidate, {
   try {
     const response = await fetchImpl(candidate.url, {
       headers: { Range: `bytes=0-${sampleBytes - 1}` },
-      cache: "no-store",
+      cache: "default",
       signal: controller.signal
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

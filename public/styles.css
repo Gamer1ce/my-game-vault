@@ -833,12 +833,28 @@ main {
   min-width: 0;
   overflow: hidden;
   position: relative;
+  content-visibility: auto;
+  contain-intrinsic-size: 460px;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
   clip-path: polygon(0 0, calc(100% - 17px) 0, 100% 17px, 100% 100%, 0 100%);
   transition: border-color 150ms ease, background-color 150ms ease;
 }
+.game-load-more {
+  display: block;
+  min-width: min(100%, 310px);
+  margin: 26px auto 0;
+  padding: 13px 20px;
+  border: 1px solid var(--cyan);
+  color: var(--cyan);
+  background: #090c10;
+  font-family: "Rajdhani", ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.game-load-more:hover, .game-load-more:focus-visible { color: #080a0c; background: var(--cyan); }
 .game::after {
   content: "";
   position: absolute;
@@ -1353,6 +1369,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .danmaku-item { flex: 0 0 auto; }
   .site-like.is-liked .like-symbol { animation: none; }
   #guestbookForm.birthday-hint-glitch input[name="message"] { animation: none; }
+}
+
+@media (hover: none), (max-width: 760px) {
+  .signal-overlay, .hero::before, .hero::after { animation: none; }
+  body::before { mix-blend-mode: normal; opacity: .07; }
 }
 @media (max-width: 1200px) {
   .stats { grid-template-columns: repeat(3, 1fr); }

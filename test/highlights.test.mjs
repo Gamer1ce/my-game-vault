@@ -20,7 +20,7 @@ test("精彩时刻只列出受支持的普通媒体文件", () => {
     assert.ok(items.every((item) => item.url.startsWith("/media/highlights/")));
     assert.ok(items.every((item) => item.url.includes("?v=")));
     assert.ok(items.find((item) => item.type === "video")?.posterUrl.startsWith("/media/highlight-posters/"));
-    assert.equal(items.find((item) => item.type === "image")?.posterUrl, null);
+    assert.ok(items.find((item) => item.type === "image")?.posterUrl.startsWith("/media/highlight-thumbnails/"));
     assert.ok(items.find((item) => item.filename === "截图 01.PNG")?.url.includes("%E6%88%AA%E5%9B%BE%2001.PNG"));
   } finally {
     rmSync(directory, { recursive: true, force: true });

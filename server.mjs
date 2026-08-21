@@ -19,8 +19,9 @@ import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
 import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, reconciledLifetimeMinutes, shanghaiDate } from "./src/activity.mjs";
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
-import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats, supportedHighlightVideoFormats } from "./src/highlights.mjs";
+import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats, supportedHighlightImageFormats, supportedHighlightVideoFormats } from "./src/highlights.mjs";
 import { createHighlightPosterService } from "./src/highlight-posters.mjs";
+import { apiCacheControl, staticCacheControl } from "./src/http-cache.mjs";
 import { createSyncRunner } from "./src/sync-runner.mjs";
 import { createSyncRequestQueue } from "./src/sync-request.mjs";
 import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
@@ -257,6 +258,7 @@ if (!activityColumns.includes("precision")) {
 const communityDb = openCommunityDatabase({ dataDirectory: dataDir, legacyDatabase: db });
 
 const app = express();
+app.disable("x-powered-by");
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 if (process.env.TRUST_PROXY === "1") app.set("trust proxy", 1);
 const adminSessions = new Map();
@@ -327,7 +329,8 @@ function setSecurityHeaders(_req, res, next) {
     "X-Frame-Options": "DENY",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
   });
-  if (_req.path.startsWith("/api/")) res.set("Cache-Control", "no-store");
+  const cacheControl = apiCacheControl(_req.method, _req.path);
+  if (cacheControl) res.set("Cache-Control", cacheControl);
   next();
 }
 
@@ -426,6 +429,30 @@ app.get("/media/highlight-posters/:filename", async (req, res) => {
     return res.status(404).end();
   }
 });
+app.get("/media/highlight-thumbnails/:filename", async (req, res) => {
+  const filename = String(req.params.filename || "");
+  const extension = path.extname(filename).toLowerCase();
+  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightImageFormats.includes(extension)) return res.status(404).end();
+  try {
+    const { directory } = resolveHighlightsDirectory(dataDir);
+    const realDirectory = realpathSync(directory);
+    const file = path.join(realDirectory, filename);
+    const stats = lstatSync(file);
+    if (!stats.isFile() || stats.isSymbolicLink()) return res.status(404).end();
+    const thumbnail = await highlightPosters.posterFor(file, filename, stats, { seekSeconds: 0 });
+    res.set({
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Content-Type": "image/jpeg",
+      "Cross-Origin-Resource-Policy": "same-origin"
+    });
+    return res.sendFile(thumbnail, (error) => {
+      if (!error || error.code === "ECONNABORTED" || error.code === "EPIPE" || res.headersSent) return;
+      return res.status(error.statusCode || 404).end();
+    });
+  } catch {
+    return res.status(404).end();
+  }
+});
 function setPublicMediaCors(res) {
   res.set({
     "Access-Control-Allow-Headers": "Range",
@@ -465,7 +492,19 @@ app.get("/media/highlights/:filename", (req, res) => {
     return res.status(404).end();
   }
 });
-app.use(express.static(path.join(root, "public")));
+app.use((req, res, next) => {
+  if (req.method !== "GET" && req.method !== "HEAD") return next();
+  if (req.path.startsWith("/api/") || req.path.startsWith("/media/")) return next();
+  const cacheControl = staticCacheControl(req.path, { versioned: Boolean(req.query.v) });
+  res.set("Cache-Control", cacheControl);
+  if (cacheControl.includes("public")) res.set("CDN-Cache-Control", cacheControl);
+  next();
+});
+app.use(express.static(path.join(root, "public"), {
+  cacheControl: false,
+  etag: true,
+  lastModified: true
+}));
 
 const listGuestbookMessages = communityDb.prepare(`
   SELECT id, nickname, message, created_at AS createdAt
@@ -566,16 +605,11 @@ app.post("/api/feedback", (req, res) => {
 });
 
 const listGames = db.prepare(`
-  SELECT id, platform, title, minutes, platform_minutes AS platformMinutes,
-         calibrated_minutes AS calibratedMinutes, calibration_platform_minutes AS calibrationPlatformMinutes,
-         calibrated_at AS calibratedAt, last_played AS lastPlayed,
-         source, external_id AS externalId, platform_id AS platformId, concept_id AS conceptId,
-         product_id AS productId, entitlement_id AS entitlementId,
-         library_status AS libraryStatus, time_status AS timeStatus,
+  SELECT platform, title, minutes, last_played AS lastPlayed,
+         source, external_id AS externalId, time_status AS timeStatus,
          cover_url AS coverUrl, store_url AS storeUrl,
          metacritic_score AS metacriticScore, score_url AS scoreUrl,
-         achievements_earned AS achievementsEarned, achievements_total AS achievementsTotal,
-         notes, updated_at AS updatedAt
+         achievements_earned AS achievementsEarned, achievements_total AS achievementsTotal
   FROM games
   WHERE time_status = 'known' AND minutes > 0
   ORDER BY minutes DESC, title COLLATE NOCASE

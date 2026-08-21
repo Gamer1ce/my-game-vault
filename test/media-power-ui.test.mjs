@@ -13,7 +13,7 @@ test("页脚包含低调的纯展示状态按钮", () => {
   assert.match(html, /id="mediaPowerButton"[^>]*aria-pressed="false"/);
   assert.match(html, /title="切换展示状态，不影响网站功能"/);
   assert.match(script, /展示状态\$\{sleeping \? "休眠中/);
-  assert.match(script, /refreshMediaPower\(\).*30_000/);
+  assert.match(script, /document\.visibilityState === "visible"[\s\S]*refreshMediaPower\(\)[\s\S]*60_000/);
 });
 
 test("访客也可以点击状态按钮切换服务", () => {
@@ -33,5 +33,6 @@ test("运行中和休眠中都不会拦截任何媒体接口", () => {
   assert.doesNotMatch(server, /power\.sleeping/);
   assert.match(server, /app\.get\("\/media\/highlights\/:filename"/);
   assert.match(server, /app\.get\("\/media\/highlight-posters\/:filename"/);
+  assert.match(server, /app\.get\("\/media\/highlight-thumbnails\/:filename"/);
   assert.match(server, /app\.get\("\/api\/highlights\/playback"/);
 });

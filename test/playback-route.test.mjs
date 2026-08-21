@@ -1,12 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  PLAYBACK_ROUTE_CACHE_TTL_MS,
+  PLAYBACK_ROUTE_SAMPLE_BYTES,
   localPlaybackCandidates,
   playbackCandidates,
   readPreferredPlaybackRoute,
   savePreferredPlaybackRoute,
   selectPlaybackCandidate
 } from "../public/playback-route.js";
+
+test("线路测速使用轻量样本并保存一天", () => {
+  assert.equal(PLAYBACK_ROUTE_SAMPLE_BYTES, 96 * 1024);
+  assert.equal(PLAYBACK_ROUTE_CACHE_TTL_MS, 24 * 60 * 60 * 1000);
+});
 
 test("本机视频优先测速 IPv6 直连并保留网站兼容线路", () => {
   assert.deepEqual(localPlaybackCandidates("/media/highlights/clip%20one.mp4?v=42", {

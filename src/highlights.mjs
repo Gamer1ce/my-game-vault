@@ -64,7 +64,9 @@ export function listHighlights(directory, limit = 500) {
         title: highlightTitle(entry.name),
         type,
         url: `/media/highlights/${encodeURIComponent(entry.name)}?v=${version}`,
-        posterUrl: type === "video" ? `/media/highlight-posters/${encodeURIComponent(entry.name)}?v=${version}` : null,
+        posterUrl: type === "video"
+          ? `/media/highlight-posters/${encodeURIComponent(entry.name)}?v=${version}`
+          : `/media/highlight-thumbnails/${encodeURIComponent(entry.name)}?v=${version}`,
         size: stats.size,
         modifiedAt: stats.mtime.toISOString()
       });
@@ -78,4 +80,7 @@ export function listHighlights(directory, limit = 500) {
 export const supportedHighlightFormats = [...mediaExtensions.keys()];
 export const supportedHighlightVideoFormats = [...mediaExtensions.entries()]
   .filter(([, type]) => type === "video")
+  .map(([extension]) => extension);
+export const supportedHighlightImageFormats = [...mediaExtensions.entries()]
+  .filter(([, type]) => type === "image")
   .map(([extension]) => extension);

@@ -14,8 +14,14 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/favicon-32-v3.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;600;800;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=20260812-3">
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="modulepreload" href="/app.js?v=20260821-1">
+  <link rel="modulepreload" href="/playback-buffer.js?v=20260811-1">
+  <link rel="modulepreload" href="/playback-route.js?v=20260821-1">
+  <link rel="modulepreload" href="/highlight-gallery.js?v=20260820-2">
+  <link rel="modulepreload" href="/hero-sequence.js?v=20260718-1">
+  <link rel="modulepreload" href="/birthday-hint.js?v=20260724-1">
+  <link rel="stylesheet" href="/styles.css?v=20260821-1">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
@@ -113,6 +119,7 @@
       <input id="search" type="search" placeholder="搜索游戏…">
     </section>
     <section class="games" id="games"></section>
+    <button class="game-load-more hidden" id="gameLoadMore" type="button" aria-controls="games">继续载入游戏</button>
     <p class="score-attribution hidden" id="scoreAttribution">MC 评分优先由 <a href="https://rawg.io/" target="_blank" rel="noopener noreferrer">RAWG</a> 提供，缺失时从 <a href="https://www.metacritic.com/game/" target="_blank" rel="noopener noreferrer">Metacritic</a> 公开游戏页补全。</p>
     <section class="empty hidden" id="empty"><h2 id="emptyTitle">还没有官方游戏记录</h2><p id="emptyMessage">连接游戏平台，或者导入平台提供的数据文件。</p></section>
     <section class="providers" id="connections">
@@ -220,6 +227,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/app.js?v=20260820-2"></script>
+  <script type="module" src="/app.js?v=20260821-1"></script>
 </body>
 </html>

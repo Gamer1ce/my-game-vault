@@ -28,17 +28,18 @@ export function createHighlightPosterService({ cacheDirectory, spawnImpl = spawn
   mkdirSync(directory, { recursive: true });
 
   return {
-    async posterFor(inputFile, filename, stats) {
+    async posterFor(inputFile, filename, stats, { seekSeconds = 0.5 } = {}) {
       const destination = path.join(directory, highlightPosterCacheFilename(filename, stats));
       if (usableFile(destination)) return destination;
       if (activePosters.has(destination)) return activePosters.get(destination);
 
       const task = new Promise((resolve, reject) => {
         const temporary = `${destination}.${process.pid}-${randomBytes(5).toString("hex")}.tmp.jpg`;
+        const seekArguments = Number(seekSeconds) > 0 ? ["-ss", String(seekSeconds)] : [];
         const child = spawnImpl("ffmpeg", [
           "-hide_banner",
           "-loglevel", "error",
-          "-ss", "0.5",
+          ...seekArguments,
           "-i", inputFile,
           "-map", "0:v:0",
           "-frames:v", "1",

@@ -12,7 +12,7 @@ import {
   readPreferredPlaybackRoute,
   savePreferredPlaybackRoute,
   selectPlaybackCandidate
-} from "./playback-route.js?v=20260811-1";
+} from "./playback-route.js?v=20260821-1";
 import {
   arrangeHighlightsForPlayback,
   canUseDirectLocalPlayback,
@@ -27,8 +27,11 @@ const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 const HIGHLIGHT_INITIAL_COUNT = 4;
 const HIGHLIGHT_PAGE_SIZE = 8;
-const state = { games: [], highlights: [], highlightFilter: "video", visibleHighlights: { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT }, highlightStorage: { available: true, customDirectory: false }, mediaPower: { mode: "running", sleeping: false }, recentActivity: { days: [], totalMinutes: 0 }, guestbook: { messages: [], likes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
+const GAME_INITIAL_COUNT = 36;
+const GAME_BATCH_SIZE = 36;
+const state = { games: [], visibleGames: GAME_INITIAL_COUNT, highlights: [], highlightFilter: "video", visibleHighlights: { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT }, highlightStorage: { available: true, customDirectory: false }, mediaPower: { mode: "running", sleeping: false }, recentActivity: { days: [], totalMinutes: 0 }, guestbook: { messages: [], likes: 0 }, stats: null, platform: "all", query: "", providers: [], connections: [], security: { publicMode: false, canManage: false, adminAvailable: true }, calendarHidden: localStorage.getItem("playlog-calendar-hidden") === "true", activity: { month: currentMonth, days: [] } };
 const $ = (selector) => document.querySelector(selector);
+let mediaPowerLoaded = false;
 const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nintendo", steam: "Steam" };
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
 const formatTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60).toLocaleString()}<span>小时 ${minutes % 60 ? `${minutes % 60} 分` : ""}</span>`;
@@ -85,6 +88,7 @@ function renderMediaPower() {
 
 async function loadMediaPower() {
   state.mediaPower = await api("/api/media/power");
+  mediaPowerLoaded = true;
   renderMediaPower();
 }
 
@@ -97,6 +101,7 @@ async function refreshMediaPower() {
 async function loadSecurity() {
   state.security = await api("/api/security");
   renderSecurity();
+  if (state.stats && state.games.length === 0) renderGameResults();
 }
 
 function platformIcon(platform) {
@@ -191,7 +196,57 @@ function posterMarkup(game, className = "") {
   const candidates = posterCandidates(game);
   const data = encodeURIComponent(JSON.stringify(candidates));
   const storeUrl = officialStoreUrl(game);
-  return `<a class="poster-link" href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener noreferrer" aria-label="在 ${platformNames[game.platform]} 官方商店查看 ${escapeHtml(game.title)}" title="前往官方商店"><div class="game-poster ${className}"><span>${platformNames[game.platform]}</span>${candidates.length ? `<img class="poster-image" src="${escapeHtml(candidates[0])}" data-posters="${data}" data-poster-index="0" alt="${escapeHtml(game.title)} 海报" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : ""}<b class="store-hint">打开商店</b></div></a>`;
+  return `<a class="poster-link" href="${escapeHtml(storeUrl)}" target="_blank" rel="noopener noreferrer" aria-label="在 ${platformNames[game.platform]} 官方商店查看 ${escapeHtml(game.title)}" title="前往官方商店"><div class="game-poster ${className}"><span>${platformNames[game.platform]}</span>${candidates.length ? `<img class="poster-image" src="${escapeHtml(candidates[0])}" data-posters="${data}" data-poster-index="0" alt="${escapeHtml(game.title)} 海报" loading="lazy" decoding="async" fetchpriority="low" referrerpolicy="no-referrer">` : ""}<b class="store-hint">打开商店</b></div></a>`;
+}
+
+function filteredGames() {
+  return state.games.filter((game) => (state.platform === "all" || game.platform === state.platform) && game.title.toLowerCase().includes(state.query));
+}
+
+function gameMarkup(game) {
+  return `<article class="game platform-${game.platform}">
+    ${posterMarkup(game)}
+    <div class="game-content"><div class="game-top"><span class="badge">${platformIcon(game.platform)}<span>${platformNames[game.platform]}</span></span><span class="source">${game.source === "manual" ? "历史记录" : game.source === "playstation-library" ? "已拥有" : game.source.endsWith("-sync") ? "官方同步" : "官方文件"}</span></div>
+    <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours ${game.timeStatus === "unknown" ? "hours-unknown" : ""}">${game.timeStatus === "unknown" ? "时长未知" : formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : game.timeStatus === "unknown" ? "Sony 游戏库记录" : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line" title="${Number(game.achievementsTotal) > 0 ? "已解锁 / 总成就" : "OpenXBL 当前未提供该游戏的总成就数"}">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`;
+}
+
+function updateGameLoadMore(games) {
+  const button = $("#gameLoadMore");
+  const remaining = Math.max(0, games.length - state.visibleGames);
+  button.classList.toggle("hidden", remaining === 0);
+  button.textContent = remaining > 0
+    ? `继续载入 ${Math.min(GAME_BATCH_SIZE, remaining)} 款 · 剩余 ${remaining} 款`
+    : "游戏档案已全部载入";
+}
+
+function renderGames({ reset = true } = {}) {
+  const games = filteredGames();
+  if (reset) state.visibleGames = Math.min(GAME_INITIAL_COUNT, games.length);
+  const visible = games.slice(0, state.visibleGames);
+  $("#games").innerHTML = visible.map(gameMarkup).join("");
+  updateGameLoadMore(games);
+  return games;
+}
+
+function loadNextGameBatch() {
+  const games = filteredGames();
+  const start = Math.min(state.visibleGames, games.length);
+  const end = Math.min(start + GAME_BATCH_SIZE, games.length);
+  if (end <= start) return updateGameLoadMore(games);
+  $("#games").insertAdjacentHTML("beforeend", games.slice(start, end).map(gameMarkup).join(""));
+  state.visibleGames = end;
+  updateGameLoadMore(games);
+}
+
+function renderGameResults() {
+  const games = renderGames({ reset: true });
+  const publicInstanceEmpty = state.security.publicMode && state.games.length === 0;
+  $("#emptyTitle").textContent = publicInstanceEmpty ? "公网实例尚未载入游戏数据" : "还没有官方游戏记录";
+  $("#emptyMessage").textContent = publicInstanceEmpty
+    ? (state.security.canManage ? "请在此服务器上同步平台，导入官方文件，或者迁移现有 games.db。" : "网站目前是只读的；需要管理员把游戏数据库同步或迁移到这台服务器。")
+    : "连接游戏平台，或者导入平台提供的数据文件。";
+  $("#empty").classList.toggle("hidden", games.length > 0);
+  $("#scoreAttribution").classList.toggle("hidden", !state.games.some((game) => game.metacriticScore !== null && game.metacriticScore !== undefined && Number.isInteger(Number(game.metacriticScore))));
 }
 
 function render() {
@@ -225,18 +280,7 @@ function render() {
     return `<div class="stat ${index === 0 ? "stat-primary" : ""}"><small class="stat-label">${escapeHtml(label)}</small><strong class="stat-value" data-text="${escapeHtml(glitchText)}" aria-label="${escapeHtml(value)}">${primaryValue}</strong></div>`;
   }).join("");
 
-  const games = state.games.filter((game) => (state.platform === "all" || game.platform === state.platform) && game.title.toLowerCase().includes(state.query));
-  $("#games").innerHTML = games.map((game) => `<article class="game platform-${game.platform}">
-    ${posterMarkup(game)}
-    <div class="game-content"><div class="game-top"><span class="badge">${platformIcon(game.platform)}<span>${platformNames[game.platform]}</span></span><span class="source">${game.source === "manual" ? "历史记录" : game.source === "playstation-library" ? "已拥有" : game.source.endsWith("-sync") ? "官方同步" : "官方文件"}</span></div>
-    <h3>${escapeHtml(game.title)}</h3><div class="game-foot"><div><div class="hours ${game.timeStatus === "unknown" ? "hours-unknown" : ""}">${game.timeStatus === "unknown" ? "时长未知" : formatTime(game.minutes)}</div><small>${game.lastPlayed ? `最后游玩 ${game.lastPlayed}` : game.timeStatus === "unknown" ? "Sony 游戏库记录" : "未记录日期"}</small>${Number(game.achievementsEarned) > 0 || Number(game.achievementsTotal) > 0 ? `<small class="achievement-line" title="${Number(game.achievementsTotal) > 0 ? "已解锁 / 总成就" : "OpenXBL 当前未提供该游戏的总成就数"}">◆ 成就 ${Number(game.achievementsEarned || 0)} / ${Number(game.achievementsTotal) > 0 ? Number(game.achievementsTotal) : "—"}</small>` : ""}</div>${metacriticMarkup(game)}</div></div></article>`).join("");
-  const publicInstanceEmpty = state.security.publicMode && state.games.length === 0;
-  $("#emptyTitle").textContent = publicInstanceEmpty ? "公网实例尚未载入游戏数据" : "还没有官方游戏记录";
-  $("#emptyMessage").textContent = publicInstanceEmpty
-    ? (state.security.canManage ? "请在此服务器上同步平台，导入官方文件，或者迁移现有 games.db。" : "网站目前是只读的；需要管理员把游戏数据库同步或迁移到这台服务器。")
-    : "连接游戏平台，或者导入平台提供的数据文件。";
-  $("#empty").classList.toggle("hidden", games.length > 0);
-  $("#scoreAttribution").classList.toggle("hidden", !state.games.some((game) => game.metacriticScore !== null && game.metacriticScore !== undefined && Number.isInteger(Number(game.metacriticScore))));
+  renderGameResults();
 }
 
 async function load() {
@@ -467,7 +511,7 @@ function safeHighlightUrl(value) {
 }
 
 function safeHighlightPosterUrl(value) {
-  return typeof value === "string" && value.startsWith("/media/highlight-posters/") ? value : null;
+  return typeof value === "string" && (value.startsWith("/media/highlight-posters/") || value.startsWith("/media/highlight-thumbnails/")) ? value : null;
 }
 
 function safePlaybackUrl(value) {
@@ -507,8 +551,8 @@ function renderHighlights() {
     const title = escapeHtml(item.title || item.filename || "精彩时刻");
     const date = item.modifiedAt ? new Date(item.modifiedAt).toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" }) : "日期未知";
     const media = item.type === "video"
-      ? `<span class="highlight-static-preview" aria-hidden="true">${url ? "LOCAL // PREVIEW" : "REMOTE // ORIGINAL"}</span>${posterUrl ? `<img class="highlight-preview-image" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async">` : ""}<span class="highlight-play" aria-hidden="true">▶</span>`
-      : `<img src="${escapeHtml(url)}" alt="${title}" loading="lazy" decoding="async">`;
+      ? `<span class="highlight-static-preview" aria-hidden="true">${url ? "LOCAL // PREVIEW" : "REMOTE // ORIGINAL"}</span>${posterUrl ? `<img class="highlight-preview-image" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" fetchpriority="low">` : ""}<span class="highlight-play" aria-hidden="true">▶</span>`
+      : `<img src="${escapeHtml(posterUrl || url)}" alt="${title}" loading="lazy" decoding="async" fetchpriority="low">`;
     const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">${item.storageSource === "baidu" ? "百度云原画" : "云端原画"}</em>` : "";
     return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${sourceIndex}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
   }).join("");
@@ -541,7 +585,10 @@ function renderHighlights() {
 
 async function loadHighlights() {
   const result = await api("/api/highlights");
-  if (result.mediaPower) state.mediaPower = result.mediaPower;
+  if (result.mediaPower) {
+    state.mediaPower = result.mediaPower;
+    mediaPowerLoaded = true;
+  }
   state.highlights = arrangeHighlightsForPlayback(Array.isArray(result.highlights) ? result.highlights : []);
   const counts = highlightCounts(state.highlights);
   state.highlightFilter = counts.video > 0 || counts.image === 0 ? "video" : "image";
@@ -860,12 +907,12 @@ async function openHighlight(index) {
       url: safePlaybackUrl(candidate.url)
     })).filter((candidate) => candidate.url);
     if (candidates.length > 1) {
-      viewer.innerHTML = `<div class="highlight-loading"><strong>正在选择更快的媒体节点</strong><span>同时检测国内与备用线路，只读取 256 KB 测速样本…</span></div>`;
+      viewer.innerHTML = `<div class="highlight-loading"><strong>正在选择更快的媒体节点</strong><span>同时检测国内与备用线路，只读取 96 KB 测速样本…</span></div>`;
     }
     const selected = await selectPlaybackCandidate(candidates, {
-      preferredId: readPreferredPlaybackRoute(sessionStorage)
+      preferredId: readPreferredPlaybackRoute(localStorage)
     });
-    if (selected) savePreferredPlaybackRoute(sessionStorage, selected);
+    if (selected) savePreferredPlaybackRoute(localStorage, selected);
     const playbackUrl = selected?.url || safePlaybackUrl(playback.url);
     if (!playbackUrl) throw new Error("播放地址不安全或不可用");
     const video = document.createElement("video");
@@ -995,8 +1042,20 @@ $("#mediaPowerButton").addEventListener("click", async () => {
     renderMediaPower();
   }
 });
-$("#tabs").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#tabs .active").classList.remove("active"); button.classList.add("active"); state.platform = button.dataset.platform; render(); });
-$("#search").addEventListener("input", (event) => { state.query = event.target.value.trim().toLowerCase(); render(); });
+$("#tabs").addEventListener("click", (event) => { const button = event.target.closest("button"); if (!button) return; $("#tabs .active").classList.remove("active"); button.classList.add("active"); state.platform = button.dataset.platform; renderGameResults(); });
+let searchRenderFrame = 0;
+$("#search").addEventListener("input", (event) => {
+  state.query = event.target.value.trim().toLowerCase();
+  cancelAnimationFrame(searchRenderFrame);
+  searchRenderFrame = requestAnimationFrame(() => renderGameResults());
+});
+$("#gameLoadMore").addEventListener("click", loadNextGameBatch);
+if ("IntersectionObserver" in window) {
+  const gameLoadObserver = new IntersectionObserver((entries) => {
+    if (entries.some((entry) => entry.isIntersecting) && !$("#gameLoadMore").classList.contains("hidden")) loadNextGameBatch();
+  }, { rootMargin: "1000px 0px" });
+  gameLoadObserver.observe($("#gameLoadMore"));
+}
 
 $("#games").addEventListener("error", (event) => handlePosterError(event), true);
 $("#activityDetails").addEventListener("error", (event) => handlePosterError(event), true);
@@ -1201,5 +1260,55 @@ $("#syncAllFooter").addEventListener("click", async (event) => {
 quickTopButton.addEventListener("click", returnToTop);
 quickBottomButton.addEventListener("click", returnToBottom);
 
-loadSecurity().then(() => Promise.all([load(), loadConnections(), loadActivity(), loadHighlights(), loadRecentActivity(), loadGuestbook(), loadMediaPower()])).catch((error) => toast(error.message));
-window.setInterval(() => refreshMediaPower().catch(() => {}), 30_000);
+function onceAsync(loader) {
+  let completed = false;
+  let pending = null;
+  return () => {
+    if (completed) return Promise.resolve();
+    if (pending) return pending;
+    pending = Promise.resolve().then(loader).then((result) => {
+      completed = true;
+      return result;
+    }).catch((error) => {
+      pending = null;
+      throw error;
+    });
+    return pending;
+  };
+}
+
+function loadWhenNear(selector, loader, rootMargin = "900px 0px") {
+  const element = $(selector);
+  const run = () => loader().catch((error) => toast(error.message));
+  if (!("IntersectionObserver" in window)) return window.setTimeout(run, 250);
+  const observer = new IntersectionObserver((entries) => {
+    if (!entries.some((entry) => entry.isIntersecting)) return;
+    observer.disconnect();
+    run();
+  }, { rootMargin });
+  observer.observe(element);
+  return observer;
+}
+
+const securityReady = loadSecurity();
+const ensureHighlights = onceAsync(loadHighlights);
+const ensureActivity = onceAsync(loadActivity);
+const ensureConnections = onceAsync(async () => { await securityReady; await loadConnections(); });
+let mediaPowerRefreshTimer = null;
+const ensureMediaPower = onceAsync(async () => {
+  if (!mediaPowerLoaded) await loadMediaPower();
+  if (!mediaPowerRefreshTimer) {
+    mediaPowerRefreshTimer = window.setInterval(() => {
+      if (document.visibilityState === "visible") refreshMediaPower().catch(() => {});
+    }, 60_000);
+  }
+});
+
+Promise.allSettled([securityReady, load(), loadRecentActivity(), loadGuestbook()]).then((results) => {
+  const failed = results.find((result) => result.status === "rejected");
+  if (failed) toast(failed.reason?.message || "部分数据暂时无法读取");
+  loadWhenNear("#highlights", ensureHighlights, "1200px 0px");
+  loadWhenNear("#activitySection", ensureActivity, "1000px 0px");
+  loadWhenNear("#connections", ensureConnections, "900px 0px");
+  loadWhenNear("#mediaPowerButton", ensureMediaPower, "700px 0px");
+});
