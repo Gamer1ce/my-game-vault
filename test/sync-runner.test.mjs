@@ -38,6 +38,18 @@ test("未连接 MC 数据源时仍完成游戏平台同步", async () => {
   }
 });
 
+test("MC 数据源失败不会撤销已经完成的平台同步", async () => {
+  const syncs = Object.fromEntries(gameSyncProviderOrder.map((id) => [id, async () => {
+    if (id === "rawg") throw new Error("Metacritic 暂时不可用");
+    return { synced: 1 };
+  }]));
+  const runner = createSyncRunner(createGameSyncTargets(syncs), { isConnected: () => true });
+
+  const result = await runner.run("automatic");
+  assert.deepEqual(result.results.slice(0, 4).map((item) => item.ok), [true, true, true, true]);
+  assert.deepEqual(result.results[4], { provider: "rawg", ok: false, error: "Metacritic 暂时不可用" });
+});
+
 test("全平台同步按顺序执行并跳过未连接平台", async () => {
   const order = [];
   const runner = createSyncRunner([
