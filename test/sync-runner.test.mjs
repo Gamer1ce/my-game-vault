@@ -1,6 +1,42 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createGameSyncTargets, gameSyncProviderOrder } from "../src/game-sync-plan.mjs";
 import { createSyncRunner } from "../src/sync-runner.mjs";
+
+test("服务器每轮同步都在游戏平台之后补全 MC 评分", async () => {
+  assert.deepEqual(gameSyncProviderOrder, ["playstation", "xbox", "nintendo", "steam", "rawg"]);
+  for (const trigger of ["manual", "automatic"]) {
+    const order = [];
+    let newGameAvailable = false;
+    const syncs = Object.fromEntries(gameSyncProviderOrder.map((id) => [id, async () => {
+      order.push(id);
+      if (id === "nintendo") newGameAvailable = true;
+      if (id === "rawg") assert.equal(newGameAvailable, true, "评分同步必须看见同轮新增的游戏");
+      return { synced: 1 };
+    }]));
+    const runner = createSyncRunner(createGameSyncTargets(syncs), { isConnected: () => true });
+
+    const result = await runner.run(trigger);
+    assert.deepEqual(order, gameSyncProviderOrder);
+    assert.deepEqual(result.results.map((item) => item.provider), gameSyncProviderOrder);
+  }
+});
+
+test("未连接 MC 数据源时仍完成游戏平台同步", async () => {
+  for (const trigger of ["manual", "automatic"]) {
+    const order = [];
+    const syncs = Object.fromEntries(gameSyncProviderOrder.map((id) => [id, async () => {
+      if (id === "rawg") assert.fail("未连接评分源时不应调用 RAWG");
+      order.push(id);
+      return { synced: 1 };
+    }]));
+    const runner = createSyncRunner(createGameSyncTargets(syncs), { isConnected: (id) => id !== "rawg" });
+
+    const result = await runner.run(trigger);
+    assert.deepEqual(order, ["playstation", "xbox", "nintendo", "steam"]);
+    assert.deepEqual(result.results.map((item) => item.provider), ["playstation", "xbox", "nintendo", "steam"]);
+  }
+});
 
 test("全平台同步按顺序执行并跳过未连接平台", async () => {
   const order = [];

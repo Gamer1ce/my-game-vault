@@ -22,6 +22,7 @@ import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./sr
 import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats, supportedHighlightImageFormats, supportedHighlightVideoFormats } from "./src/highlights.mjs";
 import { createHighlightPosterService } from "./src/highlight-posters.mjs";
 import { apiCacheControl, staticCacheControl } from "./src/http-cache.mjs";
+import { createGameSyncTargets } from "./src/game-sync-plan.mjs";
 import { createSyncRunner } from "./src/sync-runner.mjs";
 import { createSyncRequestQueue } from "./src/sync-request.mjs";
 import { createRemoteMediaService, mergeRemoteHighlights } from "./src/remote-media.mjs";
@@ -1146,12 +1147,13 @@ let azureBackupProcess = null;
 let azureRequestPollProcess = null;
 let nextAutomaticSyncAt = platformSyncEnabled ? new Date(Date.now() + automaticSyncIntervalMs).toISOString() : null;
 let lastAutomaticSyncAt = null;
-const gameSyncRunner = createSyncRunner([
-  { id: "playstation", sync: syncPlaystation },
-  { id: "xbox", sync: syncXbox },
-  { id: "nintendo", sync: syncNintendo },
-  { id: "steam", sync: syncSteam }
-], {
+const gameSyncRunner = createSyncRunner(createGameSyncTargets({
+  playstation: syncPlaystation,
+  xbox: syncXbox,
+  nintendo: syncNintendo,
+  steam: syncSteam,
+  rawg: syncMetacritic
+}), {
   isConnected(provider) {
     const connection = credentials.get(provider);
     return Boolean(connection && !connection.pending);
