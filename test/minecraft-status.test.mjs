@@ -35,6 +35,7 @@ test("合并 Minecraft 状态协议与 JVM 性能采样", async () => {
   assert.equal(result.modLoader, "Forge");
   assert.deepEqual(result.players, [{ name: "Gamer1ce", latencyMs: 42 }]);
   assert.equal(result.performance.tps, 19.98);
+  assert.equal(result.performance.rosterAvailable, true);
 });
 
 test("过期的 JVM 性能文件不会被当成实时状态", async () => {
@@ -52,6 +53,20 @@ test("Minecraft 离线时仍返回可展示的整合包档案", async () => {
   assert.equal(result.online, false);
   assert.equal(result.onlinePlayers, 0);
   assert.equal(result.performance.available, false);
+});
+
+test("JVM 空玩家列表优先于状态协议中的非完整样本", async () => {
+  const now = Date.parse("2026-08-22T01:00:00.000Z");
+  const service = createMinecraftStatusService({
+    now: () => now,
+    ping: async () => ({ latencyMs: 10, status: { players: { online: 0, max: 20, sample: [{ name: "stale-sample" }] } } }),
+    readMetrics: async () => ({
+      sampledAt: new Date(now).toISOString(), onlinePlayers: 0, maxPlayers: 20, players: []
+    })
+  });
+  const result = await service.status();
+  assert.deepEqual(result.players, []);
+  assert.equal(result.performance.rosterAvailable, true);
 });
 
 test("完整 IPv6 连接地址不会被当作玩家名称截断", async () => {

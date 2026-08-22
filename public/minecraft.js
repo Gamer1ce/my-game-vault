@@ -1,5 +1,10 @@
 const $ = (selector) => document.querySelector(selector);
 const formatter = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+const sessionFormatter = new Intl.DateTimeFormat("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+let sessionState = new Map();
+let sessionLogReady = false;
+let sessionRenderSignature = "";
+let sessionRefreshInFlight = false;
 
 function number(value, digits = 0) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "—";
@@ -17,6 +22,33 @@ function uptime(seconds) {
 function time(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "—" : formatter.format(date);
+}
+
+function sessionTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : sessionFormatter.format(date);
+}
+
+function formatSessionDuration(seconds) {
+  if (!Number.isFinite(Number(seconds)) || Number(seconds) < 0) return "—";
+  const total = Math.floor(Number(seconds));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  if (days) return `${days}天 ${hours}时`;
+  if (hours) return `${hours}时 ${minutes}分`;
+  if (minutes) return `${minutes}分`;
+  return `${total}秒`;
+}
+
+function sessionDuration(session) {
+  if (session?.unresolved || session?.endBefore) return "无法确定";
+  if (session?.durationSeconds != null && Number.isFinite(Number(session.durationSeconds))) return formatSessionDuration(session.durationSeconds);
+  const start = Date.parse(session?.joinedAt);
+  const end = session?.leftAt ? Date.parse(session.leftAt) : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return "—";
+  return formatSessionDuration(Math.floor((end - start) / 1000));
 }
 
 function health(tps) {
@@ -39,6 +71,93 @@ function renderPlayers(players) {
     article.innerHTML = `<span>${String(index + 1).padStart(2, "0")}</span><div><strong></strong><small>PLAYER // ACTIVE</small></div><em>${signal}</em>`;
     article.querySelector("strong").textContent = player.name;
     return article;
+  }));
+}
+
+function renderPlayerSessions(result) {
+  const sessions = Array.isArray(result?.sessions) ? result.sessions : [];
+  const nextState = new Map(sessions.map((session) => [String(session.id), session.online ? "online" : `closed:${session.leftAt || session.endBefore || session.endReason || "unknown"}`]));
+  if (sessionLogReady) {
+    const changes = sessions.flatMap((session) => {
+      const id = String(session.id);
+      if (!sessionState.has(id)) {
+        if (session.online) return [`${session.playerName} 已加入服务器`];
+        if (session.leftAt) return [`${session.playerName} 已加入并退出服务器`];
+        return [`${session.playerName} 的会话已中断`];
+      }
+      if (!session.online && sessionState.get(id) === "online") {
+        return [`${session.playerName} ${session.unresolved ? "的在线状态暂时无法确认" : session.leftAt ? "已退出服务器" : "的会话已中断"}`];
+      }
+      return [];
+    });
+    if (changes.length) {
+      const remaining = changes.length > 3 ? `；另有 ${changes.length - 3} 条变化` : "";
+      $("#sessionAnnouncement").textContent = `${changes.slice(0, 3).join("；")}${remaining}`;
+    }
+  }
+  sessionLogReady = true;
+  sessionState = nextState;
+  $("#sessionCountBadge").textContent = String(Number(result?.total || sessions.length)).padStart(2, "0");
+  $("#sessionLogState").textContent = result?.collectorLive
+    ? "FORGE EVENTS // LIVE"
+    : result?.collectorState === "degraded"
+      ? "FORGE EVENTS // DEGRADED"
+      : result?.archiveAvailable
+        ? "FORGE EVENTS // ARCHIVE"
+        : "FORGE EVENTS // NOT CONNECTED";
+  const list = $("#playerSessionLog");
+  const signature = JSON.stringify([
+    Boolean(result?.available),
+    Boolean(result?.collectorLive),
+    result?.collectorState,
+    ...sessions.map((session) => [
+      session.id,
+      session.playerName,
+      session.joinedAt,
+      session.observedAt,
+      session.leftAt,
+      session.endBefore,
+      session.online,
+      session.unresolved,
+      session.endReason,
+      session.durationSeconds,
+    ]),
+  ]);
+  if (signature === sessionRenderSignature) {
+    const sessionsById = new Map(sessions.map((session) => [String(session.id), session]));
+    list.querySelectorAll(".mc-session-row").forEach((row) => {
+      const session = sessionsById.get(row.dataset.sessionId);
+      if (session) row.querySelector(".mc-session-duration").textContent = sessionDuration(session);
+    });
+    return;
+  }
+  sessionRenderSignature = signature;
+  if (!sessions.length) {
+    list.innerHTML = `<p class="mc-empty">${result?.available ? "尚未捕获玩家出入记录。" : "玩家事件采集器尚未连接。"}</p>`;
+    return;
+  }
+  list.replaceChildren(...sessions.map((session, index) => {
+    const row = document.createElement("article");
+    row.className = `mc-session-row ${session.online ? "is-online" : session.unresolved || session.endBefore ? "is-unresolved" : "is-closed"}`;
+    row.dataset.sessionId = String(session.id);
+    row.innerHTML = `<span class="mc-session-index">${String(index + 1).padStart(2, "0")}</span><div class="mc-session-player"><strong></strong><small>${session.online ? "PLAYER // ONLINE" : session.unresolved || session.endBefore ? "SESSION // UNRESOLVED" : "SESSION // CLOSED"}</small></div><div class="mc-session-times"><span><small>加入</small><time></time></span><i></i><span><small>退出</small><time></time></span></div><em class="mc-session-duration"></em>`;
+    row.querySelector(".mc-session-player strong").textContent = String(session.playerName || "未知玩家");
+    const times = row.querySelectorAll("time");
+    times[0].dateTime = session.joinedAt || session.observedAt || "";
+    times[0].textContent = session.joinedAt ? sessionTime(session.joinedAt) : "接入前已在线";
+    times[1].dateTime = session.leftAt || session.endBefore || "";
+    const estimatedExit = session.endReason === "server-stop";
+    times[1].textContent = session.online
+      ? "在线中"
+      : session.unresolved
+        ? "等待采集器恢复"
+        : session.endBefore
+          ? `早于 ${sessionTime(session.endBefore)}`
+          : `${estimatedExit ? "≈ " : ""}${sessionTime(session.leftAt)}`;
+    if (estimatedExit) times[1].title = "未捕获到玩家退出事件，以服务器停止时间结算";
+    if (session.endBefore) times[1].title = "服务器异常中断，无法确定精确退出时间";
+    row.querySelector(".mc-session-duration").textContent = sessionDuration(session);
+    return row;
   }));
 }
 
@@ -88,6 +207,20 @@ async function refresh() {
   }
 }
 
+async function refreshPlayerSessions() {
+  if (sessionRefreshInFlight) return;
+  sessionRefreshInFlight = true;
+  try {
+    const response = await fetch("/api/minecraft/player-log?limit=40", { cache: "no-store" });
+    if (!response.ok) throw new Error("玩家日志接口不可用");
+    renderPlayerSessions(await response.json());
+  } catch (error) {
+    $("#sessionLogState").textContent = "SESSION LOG // INTERRUPTED";
+  } finally {
+    sessionRefreshInFlight = false;
+  }
+}
+
 $("#copyAddress").addEventListener("click", async () => {
   const button = $("#copyAddress");
   const address = $("#serverAddress").textContent.trim();
@@ -102,4 +235,6 @@ $("#copyAddress").addEventListener("click", async () => {
 });
 
 refresh();
+refreshPlayerSessions();
 window.setInterval(refresh, 5_000);
+window.setInterval(refreshPlayerSessions, 10_000);

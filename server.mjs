@@ -31,6 +31,7 @@ import { configureOutboundProxy } from "./src/network.mjs";
 import { birthdaySignalActive, birthdayTicketFor } from "./src/birthday-easter-egg.mjs";
 import { openCommunityDatabase } from "./src/community-store.mjs";
 import { createMediaPowerStore, MEDIA_POWER_MODES } from "./src/media-power.mjs";
+import { createMinecraftPlayerLogStore } from "./src/minecraft-player-log.mjs";
 import { createMinecraftStatusService } from "./src/minecraft-status.mjs";
 import {
   calibratedFinalMinutes,
@@ -52,10 +53,13 @@ const remoteMedia = createRemoteMediaService({ dataDirectory: dataDir });
 const baiduStream = createBaiduStreamService({ dataDirectory: dataDir });
 const highlightPosters = createHighlightPosterService({ cacheDirectory: path.join(dataDir, "highlight-posters") });
 const mediaPower = createMediaPowerStore({ dataDirectory: dataDir });
+const minecraftMetricsFile = process.env.MINECRAFT_METRICS_FILE || "";
+const minecraftEventsDirectory = process.env.MINECRAFT_EVENTS_DIR
+  || (minecraftMetricsFile ? path.join(path.dirname(minecraftMetricsFile), "events") : "");
 const minecraftStatus = createMinecraftStatusService({
   host: process.env.MINECRAFT_STATUS_HOST || "host.docker.internal",
   port: Number(process.env.MINECRAFT_STATUS_PORT || 47060),
-  metricsFile: process.env.MINECRAFT_METRICS_FILE || "",
+  metricsFile: minecraftMetricsFile,
   packName: process.env.MINECRAFT_PACK_NAME || "香草纪元：食旅纪行",
   packVersion: process.env.MINECRAFT_PACK_VERSION || "2.7.1",
   publicAddress: process.env.MINECRAFT_PUBLIC_ADDRESS || "[240e:331:2279:c410:495:6182:febf:b47e]:47060"
@@ -257,6 +261,7 @@ if (!activityColumns.includes("precision")) {
   db.exec("UPDATE daily_activity SET precision = 'exact' WHERE platform = 'nintendo'");
 }
 const communityDb = openCommunityDatabase({ dataDirectory: dataDir, legacyDatabase: db });
+const minecraftPlayerLog = createMinecraftPlayerLogStore({ database: db, eventsDirectory: minecraftEventsDirectory });
 
 const app = express();
 app.disable("x-powered-by");
@@ -390,6 +395,14 @@ app.get("/api/media/power", (_req, res) => res.json(mediaPower.status()));
 app.get("/api/minecraft/status", async (_req, res, next) => {
   try {
     res.json(await minecraftStatus.status());
+  } catch (error) {
+    next(error);
+  }
+});
+app.get("/api/minecraft/player-log", async (req, res, next) => {
+  try {
+    await minecraftPlayerLog.sync();
+    res.json(minecraftPlayerLog.recent(req.query.limit));
   } catch (error) {
     next(error);
   }
@@ -1532,6 +1545,23 @@ app.listen(port, () => {
   if (outboundProxy.enabled) console.log(`平台接口已使用${outboundProxy.source === "macos" ? " macOS 系统" : "环境变量"}代理`);
   if (admin) console.log(`公网只读保护已启用；管理凭据来源：${admin.source === "environment" ? "环境变量" : path.join(dataDir, "admin-access.json")}`);
 });
+
+let minecraftLogSampling = false;
+async function sampleMinecraftPlayerLog() {
+  if (minecraftLogSampling) return;
+  minecraftLogSampling = true;
+  try {
+    await minecraftPlayerLog.sync();
+  } catch (error) {
+    console.error("Minecraft 玩家事件导入失败：", error?.message || error);
+  } finally {
+    minecraftLogSampling = false;
+  }
+}
+const minecraftLogStartup = setTimeout(sampleMinecraftPlayerLog, 1_000);
+minecraftLogStartup.unref();
+const minecraftLogInterval = setInterval(sampleMinecraftPlayerLog, 5_000);
+minecraftLogInterval.unref();
 
 async function runScheduledSync(trigger) {
   try {

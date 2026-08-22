@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css?v=20260821-1">
-  <link rel="stylesheet" href="/minecraft.css?v=20260820-5">
+  <link rel="stylesheet" href="/minecraft.css?v=20260822-2">
 </head>
 <body class="minecraft-page">
   <div class="signal-overlay" aria-hidden="true"></div>
@@ -80,13 +80,21 @@
           <div><dt>性能采样</dt><dd id="metricsUpdated">—</dd></div>
         </dl>
       </article>
+
+      <article class="mc-panel mc-session-panel" aria-labelledby="sessionLogTitle">
+        <div class="mc-panel-head"><div><span>PLAYER SESSION ARCHIVE</span><h2 id="sessionLogTitle" data-text="玩家出入日志">玩家出入日志</h2></div><strong id="sessionCountBadge">00</strong></div>
+        <div class="mc-session-summary"><p>Forge 在事件发生时直接记录加入与退出；网页关闭或网站重启也不会丢失。</p><small id="sessionLogState">FORGE EVENTS // CONNECTING</small></div>
+        <div class="mc-session-columns" aria-hidden="true"><span>序号</span><span>玩家</span><span>加入 / 退出</span><span>在线时长</span></div>
+        <div class="mc-session-list" id="playerSessionLog" tabindex="0"><p class="mc-empty">尚未捕获玩家出入记录。</p></div>
+        <p class="mc-sr-only" id="sessionAnnouncement" role="status" aria-live="polite" aria-atomic="true"></p>
+      </article>
     </section>
 
     <section class="mc-terminal" aria-live="polite">
-      <span>NODE EVENT STREAM</span>
+      <span>NODE STATUS STREAM</span>
       <p id="nodeMessage">正在从本机 Minecraft 节点读取状态。</p>
     </section>
   </main>
-  <script type="module" src="/minecraft.js?v=20260820-1"></script>
+  <script type="module" src="/minecraft.js?v=20260822-2"></script>
 </body>
 </html>

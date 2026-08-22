@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Premain-Class: gamevault.minecraft.MinecraftEventAgentV2
+Agent-Class: gamevault.minecraft.MinecraftEventAgentV2
+Can-Redefine-Classes: false
+Can-Retransform-Classes: false

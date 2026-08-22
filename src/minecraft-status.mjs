@@ -59,7 +59,7 @@ function cleanAddress(value) {
 }
 
 function normalizeMetrics(value, now) {
-  if (!value || typeof value !== "object") return null;
+  if (!value || typeof value !== "object" || value.error) return null;
   const sampledAt = Date.parse(value.sampledAt);
   if (!Number.isFinite(sampledAt) || now - sampledAt > 15_000 || sampledAt - now > 5_000) return null;
   const players = Array.isArray(value.players)
@@ -174,7 +174,7 @@ export function createMinecraftStatusService({
     const sampledPlayers = Array.isArray(serverStatus.players?.sample)
       ? serverStatus.players.sample.map((player) => ({ name: cleanName(player?.name), latencyMs: null })).filter((player) => player.name)
       : [];
-    const players = metrics?.players?.length ? metrics.players : sampledPlayers;
+    const players = metrics ? metrics.players : sampledPlayers;
     return {
       online: Boolean(pingResult),
       checkedAt: new Date(checkedAt).toISOString(),
@@ -195,7 +195,8 @@ export function createMinecraftStatusService({
         mspt: metrics?.mspt ?? null,
         uptimeSeconds: metrics?.uptimeSeconds ?? null,
         memoryUsedMb: metrics?.memoryUsedMb ?? null,
-        memoryMaxMb: metrics?.memoryMaxMb ?? null
+        memoryMaxMb: metrics?.memoryMaxMb ?? null,
+        rosterAvailable: Boolean(metrics && metrics.onlinePlayers === metrics.players.length)
       }
     };
   }
