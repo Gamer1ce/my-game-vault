@@ -10,13 +10,15 @@ import {
   resumeBufferedPlayback
 } from "../public/playback-buffer.js";
 
-test("所有视频只需八至十五秒缓存即可开始播放", () => {
+test("快线路迅速起播，低于原画码率时扩大起播缓存", () => {
   assert.equal(recommendedBufferTarget(5, 0.1), 5);
   assert.equal(recommendedBufferTarget(120), 12);
   assert.equal(recommendedBufferTarget(120, 1.5), 8);
-  assert.equal(recommendedBufferTarget(120, 1), 10);
-  assert.equal(recommendedBufferTarget(120, 0.75), 12);
-  assert.equal(recommendedBufferTarget(120, 0.4), 15);
+  assert.equal(recommendedBufferTarget(120, 1.15), 10);
+  assert.equal(recommendedBufferTarget(120, 1), 15);
+  assert.equal(recommendedBufferTarget(120, 0.75), 45);
+  assert.equal(recommendedBufferTarget(120, 0.4), 87);
+  assert.equal(recommendedBufferTarget(600, 0.4), 120);
 });
 
 test("根据缓存速度估算剩余等待时间", () => {
@@ -25,7 +27,7 @@ test("根据缓存速度估算剩余等待时间", () => {
   assert.equal(estimatedBufferWait(12, 0, 0), null);
 });
 
-test("十五秒只是起播门槛，播放后持续预读六十至一百二十秒", () => {
+test("起播后按线路速度持续预读六十至一百二十秒", () => {
   assert.equal(recommendedPlaybackReadAhead(30, 0, 0.4), 30);
   assert.equal(recommendedPlaybackReadAhead(300, 0), 90);
   assert.equal(recommendedPlaybackReadAhead(300, 0, 1.5), 60);

@@ -1,6 +1,6 @@
 export const MIN_BUFFER_SECONDS = 8;
 export const DEFAULT_BUFFER_SECONDS = 12;
-export const MAX_BUFFER_SECONDS = 15;
+export const MAX_BUFFER_SECONDS = 120;
 export const BUFFER_STALL_TIMEOUT_MS = 12_000;
 export const DEFAULT_PLAYBACK_READ_AHEAD_SECONDS = 90;
 export const MIN_PLAYBACK_READ_AHEAD_SECONDS = 60;
@@ -14,9 +14,10 @@ export function recommendedBufferTarget(duration, mediaSecondsPerSecond) {
   const rate = Number(mediaSecondsPerSecond);
   if (!Number.isFinite(rate) || rate <= 0) return Math.min(total, DEFAULT_BUFFER_SECONDS);
   if (rate >= 1.5) return Math.min(total, MIN_BUFFER_SECONDS);
-  if (rate >= 1) return Math.min(total, 10);
-  if (rate >= 0.75) return Math.min(total, DEFAULT_BUFFER_SECONDS);
-  return Math.min(total, MAX_BUFFER_SECONDS);
+  if (rate >= 1.15) return Math.min(total, 10);
+  if (rate >= 1) return Math.min(total, 15);
+  const sustainableLead = total * (1 - Math.max(0, rate)) + 15;
+  return Math.min(total, Math.max(30, Math.min(MAX_BUFFER_SECONDS, sustainableLead)));
 }
 
 export function estimatedBufferWait(targetSeconds, bufferedSeconds, mediaSecondsPerSecond) {

@@ -1,6 +1,6 @@
-export const PLAYBACK_ROUTE_SAMPLE_BYTES = 96 * 1024;
-export const PLAYBACK_ROUTE_CACHE_KEY = "game-vault:baidu-media-route:v1";
-export const PLAYBACK_ROUTE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+export const PLAYBACK_ROUTE_SAMPLE_BYTES = 512 * 1024;
+export const PLAYBACK_ROUTE_CACHE_KEY = "game-vault:media-route:v2";
+export const PLAYBACK_ROUTE_CACHE_TTL_MS = 10 * 60 * 1000;
 
 export function playbackCandidates(playback) {
   const candidates = Array.isArray(playback?.candidates) ? playback.candidates : [];
@@ -13,21 +13,24 @@ export function playbackCandidates(playback) {
     : [];
 }
 
-export function localPlaybackCandidates(localUrl, { pageOrigin, directOrigin } = {}) {
+export function localPlaybackCandidates(localUrl, { pageOrigin, directOrigin, mirrorOrigin } = {}) {
   try {
     const siteUrl = new URL(localUrl, pageOrigin);
     if (!siteUrl.pathname.startsWith("/media/highlights/")) return [];
     const candidates = [];
-    if (directOrigin) {
-      const directBase = new URL(directOrigin);
-      if (directBase.protocol === "https:" && directBase.origin !== siteUrl.origin) {
-        candidates.push({
-          id: "home-ipv6-direct",
-          label: "家庭 IPv6 直连",
-          url: new URL(`${siteUrl.pathname}${siteUrl.search}`, `${directBase.origin}/`).href
-        });
-      }
-    }
+    const addOrigin = (id, label, origin) => {
+      if (!origin) return;
+      const base = new URL(origin);
+      if (base.protocol !== "https:" || base.origin === siteUrl.origin
+        || candidates.some((candidate) => new URL(candidate.url).origin === base.origin)) return;
+      candidates.push({
+        id,
+        label,
+        url: new URL(`${siteUrl.pathname}${siteUrl.search}`, `${base.origin}/`).href
+      });
+    };
+    addOrigin("home-ipv6-direct", "家庭 IPv6 直连", directOrigin);
+    addOrigin("azure-mirror", "Azure 镜像", mirrorOrigin);
     candidates.push({
       id: "site-proxy",
       label: "Cloudflare 兼容线路",
@@ -59,10 +62,18 @@ export function savePreferredPlaybackRoute(storage, candidate) {
   }
 }
 
+export function clearPreferredPlaybackRoute(storage) {
+  try {
+    storage?.removeItem(PLAYBACK_ROUTE_CACHE_KEY);
+  } catch {
+    // Storage can be disabled; there is no cached route to clear in that case.
+  }
+}
+
 export async function measurePlaybackCandidate(candidate, {
   fetchImpl = fetch,
   sampleBytes = PLAYBACK_ROUTE_SAMPLE_BYTES,
-  timeoutMs = 2500
+  timeoutMs = 6000
 } = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

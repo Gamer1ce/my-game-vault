@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   PLAYBACK_ROUTE_CACHE_TTL_MS,
   PLAYBACK_ROUTE_SAMPLE_BYTES,
+  clearPreferredPlaybackRoute,
   localPlaybackCandidates,
   playbackCandidates,
   readPreferredPlaybackRoute,
@@ -10,20 +11,26 @@ import {
   selectPlaybackCandidate
 } from "../public/playback-route.js";
 
-test("线路测速使用轻量样本并保存一天", () => {
-  assert.equal(PLAYBACK_ROUTE_SAMPLE_BYTES, 96 * 1024);
-  assert.equal(PLAYBACK_ROUTE_CACHE_TTL_MS, 24 * 60 * 60 * 1000);
+test("线路测速使用持续速度样本且短时保存", () => {
+  assert.equal(PLAYBACK_ROUTE_SAMPLE_BYTES, 512 * 1024);
+  assert.equal(PLAYBACK_ROUTE_CACHE_TTL_MS, 10 * 60 * 1000);
 });
 
 test("本机视频优先测速 IPv6 直连并保留网站兼容线路", () => {
   assert.deepEqual(localPlaybackCandidates("/media/highlights/clip%20one.mp4?v=42", {
     pageOrigin: "https://gamer1ce.top",
-    directOrigin: "https://steamway.gamer1ce.top"
+    directOrigin: "https://steamway.gamer1ce.top",
+    mirrorOrigin: "https://azure.gamer1ce.top"
   }), [
     {
       id: "home-ipv6-direct",
       label: "家庭 IPv6 直连",
       url: "https://steamway.gamer1ce.top/media/highlights/clip%20one.mp4?v=42"
+    },
+    {
+      id: "azure-mirror",
+      label: "Azure 镜像",
+      url: "https://azure.gamer1ce.top/media/highlights/clip%20one.mp4?v=42"
     },
     {
       id: "site-proxy",
@@ -49,10 +56,13 @@ test("已选择的媒体线路保存在当前会话", () => {
   const values = new Map();
   const storage = {
     getItem: (key) => values.get(key),
-    setItem: (key, value) => values.set(key, value)
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key)
   };
   savePreferredPlaybackRoute(storage, { id: "aliyun-esa" });
   assert.equal(readPreferredPlaybackRoute(storage), "aliyun-esa");
+  clearPreferredPlaybackRoute(storage);
+  assert.equal(readPreferredPlaybackRoute(storage), null);
 });
 
 test("双线路首次播放选择实测速率更高的候选", async () => {

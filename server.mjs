@@ -88,6 +88,11 @@ const directMediaOriginValue = String(process.env.DIRECT_MEDIA_ORIGIN || "").tri
   || (existsSync(directMediaOriginFile) ? readFileSync(directMediaOriginFile, "utf8").trim() : "");
 const directMediaOrigin = optionalHttpsOrigin(directMediaOriginValue);
 if (directMediaOriginValue && !directMediaOrigin) console.warn("DIRECT_MEDIA_ORIGIN 已忽略：必须是有效的 HTTPS Origin");
+const mirrorMediaOriginFile = path.join(dataDir, "mirror-media-origin.txt");
+const mirrorMediaOriginValue = String(process.env.MIRROR_MEDIA_ORIGIN || "").trim()
+  || (existsSync(mirrorMediaOriginFile) ? readFileSync(mirrorMediaOriginFile, "utf8").trim() : "");
+const mirrorMediaOrigin = optionalHttpsOrigin(mirrorMediaOriginValue);
+if (mirrorMediaOriginValue && !mirrorMediaOrigin) console.warn("MIRROR_MEDIA_ORIGIN 已忽略：必须是有效的 HTTPS Origin");
 
 function adminAccess() {
   if (!publicMode) return null;
@@ -326,8 +331,8 @@ function adminTransportAllowed(req) {
 function setSecurityHeaders(_req, res, next) {
   const remoteMediaSource = remoteMedia.allowedMediaSource();
   const baiduMediaSources = baiduStream.allowedMediaSources();
-  const mediaSources = ["'self'", "blob:", directMediaOrigin, remoteMediaSource, ...baiduMediaSources].filter(Boolean).join(" ");
-  const connectSources = ["'self'", directMediaOrigin, ...baiduMediaSources].filter(Boolean).join(" ");
+  const mediaSources = ["'self'", "blob:", directMediaOrigin, mirrorMediaOrigin, remoteMediaSource, ...baiduMediaSources].filter(Boolean).join(" ");
+  const connectSources = ["'self'", directMediaOrigin, mirrorMediaOrigin, ...baiduMediaSources].filter(Boolean).join(" ");
   res.set({
     "Content-Security-Policy": `default-src 'self'; img-src 'self' https: data:; media-src ${mediaSources}; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src ${connectSources}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     "Referrer-Policy": "no-referrer",
@@ -1223,6 +1228,7 @@ app.get("/api/highlights", async (_req, res) => {
     baiduEnabled: baiduStream.isEnabled(),
     baiduCount: baiduHighlights.length,
     directMediaOrigin,
+    mirrorMediaOrigin,
     mediaPower: power
   });
 });
