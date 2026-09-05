@@ -9,8 +9,8 @@ import {
 import {
   localPlaybackCandidates,
   playbackCandidates,
-  selectPlaybackCandidate
-} from "./playback-route.js?v=20260905-1";
+  rankPlaybackCandidates
+} from "./playback-route.js?v=20260905-2";
 import {
   arrangeHighlightsForPlayback,
   canUseDirectLocalPlayback,
@@ -288,7 +288,17 @@ async function load() {
   state.stats = result.stats || null;
   render();
 }
-function toast(message) { const el = $("#toast"); el.textContent = message; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 2800); }
+let toastTimer = null;
+function toast(message) {
+  const el = $("#toast");
+  if (toastTimer) window.clearTimeout(toastTimer);
+  el.textContent = message;
+  el.classList.add("show");
+  toastTimer = window.setTimeout(() => {
+    el.classList.remove("show");
+    toastTimer = null;
+  }, 2800);
+}
 
 function renderLikeCount() {
   $("#siteLikeCount").textContent = Math.max(0, Number(state.guestbook.likes || 0)).toLocaleString("zh-CN");
@@ -629,6 +639,13 @@ function formatBufferClock(seconds) {
   return minutes ? `${minutes}分${String(remainder).padStart(2, "0")}秒` : `${remainder}秒`;
 }
 
+function formatPlaybackSpeed(bytesPerSecond) {
+  const speed = Number(bytesPerSecond);
+  if (!Number.isFinite(speed) || speed <= 0) return "";
+  const mbps = speed * 8 / 1_000_000;
+  return `${mbps >= 10 ? mbps.toFixed(0) : mbps.toFixed(1)} Mbps`;
+}
+
 async function prefetchPlaybackRange(url, range, signal) {
   const target = new URL(url, window.location.origin);
   const response = await fetch(target.href, {
@@ -661,15 +678,21 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     : playback.source === "remote"
       ? `云端原画${label ? ` · ${label}` : ""}`
       : label || "本机线路";
-  source.textContent = routeSourceText(playback.routeLabel);
+  const candidateLabel = (candidate) => {
+    const speed = formatPlaybackSpeed(candidate?.measuredBytesPerSecond);
+    return [candidate?.label, speed].filter(Boolean).join(" · ");
+  };
+  let activeCandidate = playback.selectedCandidate || null;
+  source.textContent = routeSourceText(candidateLabel(activeCandidate) || playback.routeLabel);
 
   const panel = document.createElement("div");
   panel.className = "highlight-buffer-panel";
-  panel.innerHTML = `<div class="highlight-buffer-copy"><strong>预缓存原画</strong><span>正在读取视频索引…</span></div><div class="highlight-buffer-track"><i></i></div><div class="highlight-buffer-actions"><button class="highlight-buffer-play" type="button" disabled>正在预缓存</button><button class="highlight-play-now" type="button">立即播放</button></div>`;
+  panel.innerHTML = `<div class="highlight-buffer-copy"><strong>预缓存原画</strong><span>正在读取视频索引…</span></div><div class="highlight-buffer-track"><i></i></div><div class="highlight-buffer-actions"><button class="highlight-route-next" type="button">换条线路</button><button class="highlight-buffer-play" type="button" disabled>正在预缓存</button><button class="highlight-play-now" type="button">立即播放</button></div>`;
   const status = panel.querySelector(".highlight-buffer-copy span");
   const bar = panel.querySelector(".highlight-buffer-track i");
   const bufferedPlay = panel.querySelector(".highlight-buffer-play");
   const playNow = panel.querySelector(".highlight-play-now");
+  const routeNext = panel.querySelector(".highlight-route-next");
   const sample = {
     startedAt: performance.now(),
     initialEnd: 0,
@@ -683,6 +706,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   let activePlaybackUrl = playbackUrl;
   const fallbackCandidates = Array.isArray(playback.fallbackCandidates) ? [...playback.fallbackCandidates] : [];
   const readAhead = { controller: null, prefetchedThrough: 0, lastFailedAt: 0 };
+  let pendingResume = null;
 
   const abortReadAhead = () => {
     const controller = readAhead.controller;
@@ -723,7 +747,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   };
 
   const updateRouteLabel = (candidate) => {
-    if (candidate?.label) source.textContent = routeSourceText(candidate.label);
+    if (candidate?.label) source.textContent = routeSourceText(candidateLabel(candidate));
   };
 
   const nextFallback = () => {
@@ -732,6 +756,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
       if (candidate?.url && candidate.url !== activePlaybackUrl) {
         abortReadAhead();
         activePlaybackUrl = candidate.url;
+        activeCandidate = candidate;
         updateRouteLabel(candidate);
         sample.startedAt = performance.now();
         sample.initialEnd = 0;
@@ -743,6 +768,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
         sample.lastProgressAt = performance.now();
         readAhead.prefetchedThrough = 0;
         readAhead.lastFailedAt = 0;
+        routeNext.hidden = fallbackCandidates.length === 0;
         return candidate;
       }
     }
@@ -750,8 +776,11 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   };
 
   const switchToFallback = (message) => {
+    const resumeAt = Math.max(0, Number(video.currentTime || 0));
+    const resumePlaying = sample.playing && !video.ended;
     const fallback = nextFallback();
     if (!fallback) return false;
+    pendingResume = { resumeAt, resumePlaying };
     panel.classList.remove("is-error");
     status.textContent = `${message}，正在切换到 ${fallback.label || "备用线路"}…`;
     video.src = fallback.url;
@@ -829,12 +858,22 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   };
 
   bufferedPlay.addEventListener("click", startPlayback);
+  routeNext.hidden = fallbackCandidates.length === 0;
+  routeNext.addEventListener("click", () => {
+    if (!switchToFallback("已手动切换线路")) routeNext.hidden = true;
+  });
   video.addEventListener("loadedmetadata", () => {
     sample.startedAt = performance.now();
     sample.initialEnd = bufferedEndAtCurrentTime(video);
     sample.lastBufferedEnd = sample.initialEnd;
     sample.lastProgressAt = performance.now();
     readAhead.prefetchedThrough = 0;
+    if (pendingResume) {
+      const resume = pendingResume;
+      pendingResume = null;
+      try { video.currentTime = Math.min(resume.resumeAt, Math.max(0, Number(video.duration) - 0.1)); } catch {}
+      if (resume.resumePlaying) video.addEventListener("canplay", startPlayback, { once: true });
+    }
     update();
   });
   video.addEventListener("progress", update);
@@ -913,7 +952,8 @@ async function openHighlight(index) {
     if (candidates.length > 1) {
       viewer.innerHTML = `<div class="highlight-loading"><strong>正在选择更快的媒体节点</strong><span>同时检测 IPv6 直连、Azure 镜像与兼容线路，读取 512 KB 样本判断持续速度…</span></div>`;
     }
-    const selected = await selectPlaybackCandidate(candidates);
+    const rankedCandidates = await rankPlaybackCandidates(candidates, { fileSize: item.size });
+    const selected = rankedCandidates[0] || candidates[0];
     const playbackUrl = selected?.url || safePlaybackUrl(playback.url);
     if (!playbackUrl) throw new Error("播放地址不安全或不可用");
     const video = document.createElement("video");
@@ -921,10 +961,11 @@ async function openHighlight(index) {
     video.autoplay = false;
     video.preload = "auto";
     video.playsInline = true;
-    const fallbackCandidates = candidates.filter((candidate) => candidate.id !== selected?.id);
+    const fallbackCandidates = rankedCandidates.slice(1);
     mountBufferedVideo(viewer, video, item, {
       ...playback,
       routeLabel: selected?.label,
+      selectedCandidate: selected,
       fallbackCandidates
     }, playbackUrl, request);
   } catch (error) {
@@ -1295,7 +1336,14 @@ function onceAsync(loader) {
 
 function loadWhenNear(selector, loader, rootMargin = "900px 0px") {
   const element = $(selector);
-  const run = () => loader().catch((error) => toast(error.message));
+  let attempts = 0;
+  const run = () => {
+    attempts += 1;
+    return loader().catch((error) => {
+      toast(error.message);
+      if (attempts < 2) window.setTimeout(run, 3_000);
+    });
+  };
   if (!("IntersectionObserver" in window)) return window.setTimeout(run, 250);
   const observer = new IntersectionObserver((entries) => {
     if (!entries.some((entry) => entry.isIntersecting)) return;

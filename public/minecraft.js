@@ -5,6 +5,7 @@ let sessionState = new Map();
 let sessionLogReady = false;
 let sessionRenderSignature = "";
 let sessionRefreshInFlight = false;
+let statusRefreshInFlight = false;
 
 function number(value, digits = 0) {
   return Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : "—";
@@ -196,6 +197,8 @@ function render(data) {
 }
 
 async function refresh() {
+  if (statusRefreshInFlight) return;
+  statusRefreshInFlight = true;
   try {
     const response = await fetch("/api/minecraft/status", { cache: "no-store" });
     if (!response.ok) throw new Error("状态接口不可用");
@@ -204,6 +207,8 @@ async function refresh() {
     document.body.classList.add("mc-offline");
     $("#statusLabel").textContent = "遥测中断";
     $("#nodeMessage").textContent = `${error.message}；将在 5 秒后重试。`;
+  } finally {
+    statusRefreshInFlight = false;
   }
 }
 
@@ -236,5 +241,14 @@ $("#copyAddress").addEventListener("click", async () => {
 
 refresh();
 refreshPlayerSessions();
-window.setInterval(refresh, 5_000);
-window.setInterval(refreshPlayerSessions, 10_000);
+window.setInterval(() => {
+  if (document.visibilityState === "visible") refresh();
+}, 5_000);
+window.setInterval(() => {
+  if (document.visibilityState === "visible") refreshPlayerSessions();
+}, 10_000);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "visible") return;
+  refresh();
+  refreshPlayerSessions();
+});

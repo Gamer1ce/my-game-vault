@@ -26,6 +26,9 @@ test("玩家日志前端只公开名称和会话时间并安全写入名称", ()
   assert.match(script, /querySelector\("\.mc-session-player strong"\)\.textContent/);
   assert.match(script, /times\[0\]\.textContent = session\.joinedAt \? sessionTime/);
   assert.match(script, /if \(sessionRefreshInFlight\) return/);
+  assert.match(script, /if \(statusRefreshInFlight\) return/);
+  assert.match(script, /if \(document\.visibilityState === "visible"\) refresh\(\)/);
+  assert.match(script, /document\.addEventListener\("visibilitychange"/);
   assert.match(script, /已加入并退出服务器/);
   assert.match(script, /FORGE EVENTS \/\/ DEGRADED/);
   assert.match(script, /等待采集器恢复/);

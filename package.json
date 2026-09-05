@@ -21,17 +21,22 @@
     "node": ">=22.5"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1087.0",
-    "@aws-sdk/lib-storage": "^3.1087.0",
-    "@aws-sdk/s3-request-presigner": "^3.1087.0",
+    "@aws-sdk/client-s3": "^3.1127.0",
+    "@aws-sdk/lib-storage": "^3.1127.0",
+    "@aws-sdk/s3-request-presigner": "^3.1127.0",
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
-    "multer": "^2.0.2",
+    "multer": "^2.3.0",
     "nxapi": "^1.6.1-next.254",
-    "psn-api": "^2.18.0",
-    "undici": "^6.27.0"
+    "psn-api": "^2.18.1",
+    "undici": "^6.28.1"
   },
   "overrides": {
+    "brace-expansion@<1.1.18": "1.1.18",
+    "brace-expansion@>=2.0.0 <2.1.4": "2.1.4",
+    "qs": "6.16.0",
+    "sharp": "0.35.4",
+    "tar": "7.5.22",
     "uuid": "^11.1.1"
   }
 }

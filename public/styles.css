@@ -1125,6 +1125,8 @@ dialog form, .activity-dialog-body { padding: 28px; }
 .highlight-buffer-actions button { padding: 10px 14px; border: 1px solid var(--cyan); color: var(--cyan); background: #06090c; font-size: 12px; font-weight: 900; }
 .highlight-buffer-actions button:hover:not(:disabled) { color: #050608; background: var(--cyan); }
 .highlight-buffer-actions .highlight-play-now { border-color: #5d6670; color: #c0c6cc; }
+.highlight-buffer-actions .highlight-route-next { margin-right: auto; border-color: var(--yellow); color: var(--yellow); }
+.highlight-buffer-actions .highlight-route-next:hover:not(:disabled) { color: #050608; background: var(--yellow); }
 .highlight-buffer-actions button:disabled { cursor: wait; opacity: .55; }
 .highlight-buffer-panel.is-error { border-top-color: var(--pink); }
 .highlight-buffer-panel.is-error .highlight-buffer-copy strong { color: var(--pink); }
@@ -1429,6 +1431,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
   .highlight-buffer-copy { display: grid; gap: 5px; }
   .highlight-buffer-actions { justify-content: stretch; }
   .highlight-buffer-actions button { flex: 1; }
+  .highlight-buffer-actions .highlight-route-next { margin-right: 0; }
   .birthday-dialog-body { padding: 22px 18px 20px; }
   .birthday-close { right: 14px; top: 14px; }
   .birthday-protocol { max-width: calc(100% - 48px); flex-wrap: wrap; gap: 3px 8px; }
