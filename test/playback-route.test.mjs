@@ -1,19 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  PLAYBACK_ROUTE_CACHE_TTL_MS,
   PLAYBACK_ROUTE_SAMPLE_BYTES,
-  clearPreferredPlaybackRoute,
   localPlaybackCandidates,
   playbackCandidates,
-  readPreferredPlaybackRoute,
-  savePreferredPlaybackRoute,
   selectPlaybackCandidate
 } from "../public/playback-route.js";
 
-test("线路测速使用持续速度样本且短时保存", () => {
+test("线路测速使用持续速度样本", () => {
   assert.equal(PLAYBACK_ROUTE_SAMPLE_BYTES, 512 * 1024);
-  assert.equal(PLAYBACK_ROUTE_CACHE_TTL_MS, 10 * 60 * 1000);
 });
 
 test("本机视频优先测速 IPv6 直连并保留网站兼容线路", () => {
@@ -52,19 +47,6 @@ test("旧版单线路播放响应保持兼容", () => {
   }]);
 });
 
-test("已选择的媒体线路保存在当前会话", () => {
-  const values = new Map();
-  const storage = {
-    getItem: (key) => values.get(key),
-    setItem: (key, value) => values.set(key, value),
-    removeItem: (key) => values.delete(key)
-  };
-  savePreferredPlaybackRoute(storage, { id: "aliyun-esa" });
-  assert.equal(readPreferredPlaybackRoute(storage), "aliyun-esa");
-  clearPreferredPlaybackRoute(storage);
-  assert.equal(readPreferredPlaybackRoute(storage), null);
-});
-
 test("双线路首次播放选择实测速率更高的候选", async () => {
   const candidates = [
     { id: "aliyun-esa", url: "https://media-cn.example/video" },
@@ -78,5 +60,21 @@ test("双线路首次播放选择实测速率更高的候选", async () => {
     })
   });
   assert.equal(selected.id, "aliyun-esa");
-  assert.equal((await selectPlaybackCandidate(candidates, { preferredId: "cloudflare" })).id, "cloudflare");
+});
+
+test("每个视频都重新测速，不盲从上次的线路", async () => {
+  const candidates = [
+    { id: "home-ipv6-direct", url: "https://direct.example/video" },
+    { id: "azure-mirror", url: "https://azure.example/video" }
+  ];
+  let measured = 0;
+  const selected = await selectPlaybackCandidate(candidates, {
+    preferredId: "azure-mirror",
+    measureImpl: async (candidate) => {
+      measured += 1;
+      return { candidate, ok: true, bytesPerSecond: candidate.id === "home-ipv6-direct" ? 8_000_000 : 1_000_000 };
+    }
+  });
+  assert.equal(measured, 2);
+  assert.equal(selected.id, "home-ipv6-direct");
 });

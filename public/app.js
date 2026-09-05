@@ -7,13 +7,10 @@ import {
   resumeBufferedPlayback
 } from "./playback-buffer.js?v=20260904-1";
 import {
-  clearPreferredPlaybackRoute,
   localPlaybackCandidates,
   playbackCandidates,
-  readPreferredPlaybackRoute,
-  savePreferredPlaybackRoute,
   selectPlaybackCandidate
-} from "./playback-route.js?v=20260904-1";
+} from "./playback-route.js?v=20260905-1";
 import {
   arrangeHighlightsForPlayback,
   canUseDirectLocalPlayback,
@@ -39,9 +36,6 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => 
 const formatTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60).toLocaleString()}<span>小时 ${minutes % 60 ? `${minutes % 60} 分` : ""}</span>`;
 const formatPlainTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时${minutes % 60 ? ` ${minutes % 60} 分钟` : ""}`;
 const api = async (url, options = {}) => { const response = await fetch(url, { credentials:"same-origin", ...options }); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "请求失败"); } return response.status === 204 ? null : response.json(); };
-const forgetPlaybackRoute = () => clearPreferredPlaybackRoute(sessionStorage);
-window.addEventListener("online", forgetPlaybackRoute);
-navigator.connection?.addEventListener?.("change", forgetPlaybackRoute);
 
 const heroSequenceTitle = $("#heroSequenceTitle");
 const heroSequenceTrigger = $("#heroSequenceTrigger");
@@ -775,9 +769,8 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) {
       if (bufferProgressTimedOut({ now, lastProgressAt: sample.lastProgressAt, playing: sample.playing })) {
-        if (switchToFallback("当前线路读取超时")) return;
         sample.stalled = true;
-        status.textContent = "视频索引读取较慢；可以尝试播放，已经收到的数据不会重新下载。";
+        status.textContent = "视频索引读取较慢，仍保持当前实测最快线路；可以尝试播放。";
         bufferedPlay.disabled = false;
         bufferedPlay.textContent = "尝试播放";
         playNow.hidden = true;
@@ -803,7 +796,6 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     const ready = remaining <= 0.5 || bufferAhead + 0.5 >= startupTarget;
     const wait = estimatedBufferWait(startupTarget, bufferAhead, sample.rate);
     if (bufferProgressTimedOut({ now, lastProgressAt: sample.lastProgressAt, playing: sample.playing, ready })) sample.stalled = true;
-    if (sample.stalled && !sample.playing && bufferAhead < 1 && switchToFallback("当前线路缓存停滞")) return;
     const activeTarget = sample.playing ? playbackTarget : startupTarget;
     const prefetchedAhead = Math.max(0, readAhead.prefetchedThrough - currentTime);
     const effectiveAhead = Math.max(bufferAhead, prefetchedAhead);
@@ -921,10 +913,7 @@ async function openHighlight(index) {
     if (candidates.length > 1) {
       viewer.innerHTML = `<div class="highlight-loading"><strong>正在选择更快的媒体节点</strong><span>同时检测 IPv6 直连、Azure 镜像与兼容线路，读取 512 KB 样本判断持续速度…</span></div>`;
     }
-    const selected = await selectPlaybackCandidate(candidates, {
-      preferredId: readPreferredPlaybackRoute(sessionStorage)
-    });
-    if (selected) savePreferredPlaybackRoute(sessionStorage, selected);
+    const selected = await selectPlaybackCandidate(candidates);
     const playbackUrl = selected?.url || safePlaybackUrl(playback.url);
     if (!playbackUrl) throw new Error("播放地址不安全或不可用");
     const video = document.createElement("video");

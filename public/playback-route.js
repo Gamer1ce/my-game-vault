@@ -1,6 +1,4 @@
 export const PLAYBACK_ROUTE_SAMPLE_BYTES = 512 * 1024;
-export const PLAYBACK_ROUTE_CACHE_KEY = "game-vault:media-route:v2";
-export const PLAYBACK_ROUTE_CACHE_TTL_MS = 10 * 60 * 1000;
 
 export function playbackCandidates(playback) {
   const candidates = Array.isArray(playback?.candidates) ? playback.candidates : [];
@@ -39,34 +37,6 @@ export function localPlaybackCandidates(localUrl, { pageOrigin, directOrigin, mi
     return candidates;
   } catch {
     return [];
-  }
-}
-
-export function readPreferredPlaybackRoute(storage) {
-  try {
-    const saved = JSON.parse(storage?.getItem(PLAYBACK_ROUTE_CACHE_KEY) || "null");
-    const savedAt = Number(saved?.savedAt || 0);
-    return saved && typeof saved.id === "string" && savedAt + PLAYBACK_ROUTE_CACHE_TTL_MS > Date.now()
-      ? saved.id
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-export function savePreferredPlaybackRoute(storage, candidate) {
-  try {
-    storage?.setItem(PLAYBACK_ROUTE_CACHE_KEY, JSON.stringify({ id: candidate.id, savedAt: Date.now() }));
-  } catch {
-    // Storage can be disabled in private browsing; route selection still works for this playback.
-  }
-}
-
-export function clearPreferredPlaybackRoute(storage) {
-  try {
-    storage?.removeItem(PLAYBACK_ROUTE_CACHE_KEY);
-  } catch {
-    // Storage can be disabled; there is no cached route to clear in that case.
   }
 }
 
@@ -113,9 +83,6 @@ export async function measurePlaybackCandidate(candidate, {
 
 export async function selectPlaybackCandidate(candidates, options = {}) {
   if (candidates.length <= 1) return candidates[0] || null;
-  const preferredId = options.preferredId;
-  const preferred = preferredId && candidates.find((candidate) => candidate.id === preferredId);
-  if (preferred) return preferred;
   const measure = options.measureImpl || measurePlaybackCandidate;
   const results = await Promise.all(candidates.map((candidate) => measure(candidate, options)));
   const successful = results.filter((result) => result.ok)
