@@ -177,6 +177,8 @@ data/highlights/
 https://media-direct.example.com
 ```
 
+如果手机流量无法访问默认 443 端口，但能访问 8443，可将地址写为 `https://media-direct.example.com:8443`。需先在路由器 IPv6 入站规则和反向代理中开放该 TCP 端口；Docker 可将宿主机 `[::]:8443` 映射到 Caddy 的 `443`。修改后重启网站服务，播放地址和页面 CSP 会一同使用新端口；备用站也应同步修改它自己的私密配置。证书仍使用域名签发，不带端口。若通过端口映射提供服务，媒体站点应移除指向旧端口的 `Alt-Svc` 响应头（Caddy：`header -Alt-Svc`），避免浏览器尝试旧的 HTTP/3 端口。是否可用必须用手机流量测试，不能仅凭家庭局域网测试判断。
+
 镜像地址可写入私密文件 `data/mirror-media-origin.txt` 或环境变量 `MIRROR_MEDIA_ORIGIN`。镜像须提供相同的 `/media/highlights/*` 只读路径和跨源 Range 头；不存在的新文件会在测速时被排除，不会影响本机播放。
 
 该子域必须使用仅 DNS 的 AAAA 记录指向家庭公网 IPv6，并由 Caddy 等反向代理申请受浏览器信任的公开证书；只需向它开放 `/media/highlights/*`，其他路径返回 404。媒体响应已经提供跨源 Range 所需的 CORS 与 CORP 头。直连会绕过 Cloudflare 的跨境回源和缓存策略，但也会暴露家庭 IPv6、失去 Cloudflare DDoS 防护且无法服务纯 IPv4 网络，因此只应作为自动候选线路，而不是删除原有兼容线路。

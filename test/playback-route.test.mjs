@@ -43,6 +43,17 @@ test("本机视频优先测速 IPv6 直连并保留网站兼容线路", () => {
   }), []);
 });
 
+test("家庭直连保留自定义 HTTPS 端口、编码路径和版本参数", () => {
+  const candidates = localPlaybackCandidates("/media/highlights/clip%20one.mp4?v=42", {
+    pageOrigin: "https://gamer1ce.top",
+    directOrigin: "https://steamway.gamer1ce.top:8443",
+    mirrorOrigin: "https://azure.gamer1ce.top"
+  });
+  assert.equal(candidates[0].url, "https://steamway.gamer1ce.top:8443/media/highlights/clip%20one.mp4?v=42");
+  assert.equal(candidates[0].id, "home-ipv6-direct");
+  assert.equal(candidates[2].url, "https://gamer1ce.top/media/highlights/clip%20one.mp4?v=42");
+});
+
 test("旧版单线路播放响应保持兼容", () => {
   assert.deepEqual(playbackCandidates({ url: "https://media.example/v1/token/video.mp4" }), [{
     id: "default",
