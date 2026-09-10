@@ -52,7 +52,8 @@ for (let index = 0; index < videos.length; index += 1) {
       const after = fastStartStatus(temporary);
       if (!after.supported || !after.optimized || statSync(temporary).size <= 0) throw new Error("输出文件结构校验失败");
       chmodSync(temporary, original.mode);
-      utimesSync(temporary, original.atime, original.mtime);
+      // Changed bytes need a new URL version and must be detected by mirror sync.
+      utimesSync(temporary, original.atime, new Date());
       renameSync(temporary, source);
       optimized += 1;
       console.log(`${label} · 优化完成（音视频流未重新编码）`);

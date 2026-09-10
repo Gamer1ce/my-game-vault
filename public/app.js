@@ -20,6 +20,7 @@ import {
 } from "./highlight-gallery.js?v=20260820-2";
 import { createHeroSequence } from "./hero-sequence.js?v=20260718-1";
 import { createBirthdayHintCycle } from "./birthday-hint.js?v=20260724-1";
+import { playbackStartupState, STARTUP_WAIT_MS } from "./playback-startup.js?v=20260910-1";
 
 const now = new Date();
 const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -694,6 +695,9 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   const playNow = panel.querySelector(".highlight-play-now");
   const routeNext = panel.querySelector(".highlight-route-next");
   const sample = {
+    requestedAt: null,
+    playError: null,
+    terminalError: null,
     startedAt: performance.now(),
     initialEnd: 0,
     rate: null,
@@ -759,6 +763,9 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
         activeCandidate = candidate;
         updateRouteLabel(candidate);
         sample.startedAt = performance.now();
+        sample.requestedAt = null;
+        sample.playError = null;
+        sample.terminalError = null;
         sample.initialEnd = 0;
         sample.rate = null;
         sample.playing = false;
@@ -785,27 +792,50 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     status.textContent = `${message}，正在切换到 ${fallback.label || "备用线路"}…`;
     video.src = fallback.url;
     video.load();
+    if (resumePlaying) startPlayback();
     return true;
   };
 
   const startPlayback = async () => {
-    try { await resumeBufferedPlayback(video); } catch { status.textContent = "浏览器阻止了自动播放，请点击视频控制栏中的播放键。"; }
+    const attemptUrl = activePlaybackUrl;
+    const retry = sample.terminalError || (sample.requestedAt !== null && performance.now() - sample.requestedAt >= STARTUP_WAIT_MS);
+    sample.playError = null;
+    sample.terminalError = null;
+    panel.classList.remove("is-error");
+    if (retry && video.readyState < 1) { video.pause(); video.load(); }
+    sample.requestedAt = performance.now();
+    sample.waiting = true;
+    // Call play directly in the click handler, before any asynchronous work.
+    const promise = resumeBufferedPlayback(video);
+    update();
+    try { await promise; } catch (error) {
+      if (request !== highlightPlaybackRequest || activePlaybackUrl !== attemptUrl || error?.name === "AbortError") return;
+      sample.playing = false;
+      sample.waiting = false;
+      sample.requestedAt = null;
+      sample.playError = error?.name === "NotAllowedError"
+        ? "需要手动播放，请点击“播放原画”或视频上的播放键。"
+        : "视频未能开始播放，请重试或换条线路。";
+      update();
+    }
   };
 
   const update = () => {
     if (request !== highlightPlaybackRequest || !video.isConnected) return;
     const now = performance.now();
+    if (sample.terminalError || !sample.playing || sample.waiting) {
+      const startup = playbackStartupState({ readyState: video.readyState, requestedAt: sample.requestedAt, now, error: sample.terminalError || sample.playError });
+      status.textContent = startup.message;
+      bufferedPlay.disabled = startup.disabled;
+      bufferedPlay.textContent = startup.label;
+      playNow.hidden = true;
+      return;
+    }
     const duration = Number(video.duration);
     if (!Number.isFinite(duration) || duration <= 0) {
-      if (bufferProgressTimedOut({ now, lastProgressAt: sample.lastProgressAt, playing: sample.playing })) {
-        sample.stalled = true;
-        status.textContent = "视频索引读取较慢，仍保持当前实测最快线路；可以尝试播放。";
-        bufferedPlay.disabled = false;
-        bufferedPlay.textContent = "尝试播放";
-        playNow.hidden = true;
-      } else {
-        status.textContent = "正在读取视频索引…";
-      }
+      status.textContent = "正在播放原画，视频总时长暂不可用。";
+      bufferedPlay.disabled = true;
+      bufferedPlay.textContent = "正在播放";
       return;
     }
     const currentTime = Math.max(0, Number(video.currentTime || 0));
@@ -872,19 +902,18 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
       const resume = pendingResume;
       pendingResume = null;
       try { video.currentTime = Math.min(resume.resumeAt, Math.max(0, Number(video.duration) - 0.1)); } catch {}
-      if (resume.resumePlaying) video.addEventListener("canplay", startPlayback, { once: true });
     }
     update();
   });
   video.addEventListener("progress", update);
-  video.addEventListener("canplay", () => { sample.waiting = false; update(); });
+  video.addEventListener("canplay", update);
   video.addEventListener("stalled", update);
   video.addEventListener("suspend", update);
-  video.addEventListener("waiting", () => { abortReadAhead(); sample.waiting = true; update(); });
-  video.addEventListener("play", () => { sample.playing = true; update(); });
-  video.addEventListener("playing", () => { sample.playing = true; sample.waiting = false; update(); });
-  video.addEventListener("pause", () => { if (!video.ended) { abortReadAhead(); sample.playing = false; update(); } });
-  video.addEventListener("ended", abortReadAhead);
+  video.addEventListener("waiting", () => { abortReadAhead(); sample.waiting = true; sample.requestedAt ??= performance.now(); update(); });
+  video.addEventListener("play", () => { sample.requestedAt ??= performance.now(); sample.waiting = true; update(); });
+  video.addEventListener("playing", () => { sample.playing = true; sample.waiting = false; sample.requestedAt = null; sample.playError = null; update(); });
+  video.addEventListener("pause", () => { if (!video.ended) { abortReadAhead(); sample.playing = false; sample.waiting = false; sample.requestedAt = null; update(); } });
+  video.addEventListener("ended", () => { abortReadAhead(); sample.playing = false; sample.waiting = false; sample.requestedAt = null; update(); });
   video.addEventListener("seeking", () => {
     abortReadAhead();
     readAhead.prefetchedThrough = 0;
@@ -896,12 +925,14 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   video.addEventListener("error", () => {
     if (switchToFallback("当前节点连接中断")) return;
     panel.classList.add("is-error");
-    status.textContent = "浏览器无法解码此文件，或所有媒体线路均已中断。";
+    sample.terminalError = video.error?.code === 3 || video.error?.code === 4
+      ? "当前浏览器无法播放此视频格式，可重试或使用兼容浏览器。"
+      : "视频连接中断，请重试播放。";
+    update();
   });
   viewer.replaceChildren(video, source, panel);
   stopHighlightBufferTimer();
-  panel.querySelector(".highlight-buffer-copy strong").textContent = "流畅播放缓冲";
-  status.textContent = "正在按当前线路与原画码率准备缓存；慢线路会多等一会儿后再播放。";
+  panel.querySelector(".highlight-buffer-copy strong").textContent = "原画播放缓冲";
   panel.style.setProperty("--buffer-target", "100%");
   playNow.addEventListener("click", startPlayback);
   video.src = activePlaybackUrl;
@@ -953,13 +984,14 @@ async function openHighlight(index) {
       viewer.innerHTML = `<div class="highlight-loading"><strong>正在选择更快的媒体节点</strong><span>同时检测 IPv6 直连、Azure 镜像与兼容线路，读取 512 KB 样本判断持续速度…</span></div>`;
     }
     const rankedCandidates = await rankPlaybackCandidates(candidates, { fileSize: item.size });
+    if (request !== highlightPlaybackRequest || !$("#highlightDialog").open) return;
     const selected = rankedCandidates[0] || candidates[0];
     const playbackUrl = selected?.url || safePlaybackUrl(playback.url);
     if (!playbackUrl) throw new Error("播放地址不安全或不可用");
     const video = document.createElement("video");
     video.controls = true;
     video.autoplay = false;
-    video.preload = "auto";
+    video.preload = "metadata";
     video.playsInline = true;
     const fallbackCandidates = rankedCandidates.slice(1);
     mountBufferedVideo(viewer, video, item, {
