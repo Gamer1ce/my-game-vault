@@ -15,13 +15,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="modulepreload" href="/app.js?v=20260910-1">
+  <link rel="modulepreload" href="/app.js?v=20260911-1">
   <link rel="modulepreload" href="/playback-buffer.js?v=20260904-1">
   <link rel="modulepreload" href="/playback-route.js?v=20260905-2">
-  <link rel="modulepreload" href="/highlight-gallery.js?v=20260820-2">
+  <link rel="modulepreload" href="/highlight-gallery.js?v=20260911-1">
   <link rel="modulepreload" href="/hero-sequence.js?v=20260718-1">
   <link rel="modulepreload" href="/birthday-hint.js?v=20260724-1">
-  <link rel="stylesheet" href="/styles.css?v=20260905-1">
+  <link rel="stylesheet" href="/styles.css?v=20260911-1">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
@@ -88,6 +88,12 @@
           </div>
           <span class="highlight-count" id="highlightCount">VIDEO // 00</span>
         </div>
+      </div>
+      <div class="highlight-library-tools">
+        <label>游戏分类<select id="highlightCategory"><option value="">全部游戏</option></select></label>
+        <label class="highlight-search">搜索视频或截图<input id="highlightSearch" type="search" placeholder="游戏名、文件名或日期" maxlength="150"></label>
+        <label>排列方式<select id="highlightSort"><option value="random">随机发现</option><option value="newest">文件更新：新 → 旧</option><option value="name">文件名称</option><option value="smallest">文件大小：小 → 大</option></select></label>
+        <button class="ghost" id="highlightRefresh" type="button">刷新媒体库</button>
       </div>
       <div class="highlight-grid" id="highlightGrid"></div>
       <div class="highlight-more-wrap">
@@ -219,6 +225,17 @@
     </div>
   </dialog>
 
+  <dialog id="highlightCategoryDialog">
+    <form id="highlightCategoryForm">
+      <div class="dialog-head"><h2>修改游戏分类</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <p id="highlightCategoryFilename"></p>
+      <label>游戏名称<input id="highlightCategoryName" list="highlightCategoryNames" maxlength="100" placeholder="留空恢复自动分类"></label>
+      <datalist id="highlightCategoryNames"></datalist>
+      <label class="highlight-rule-option"><input type="checkbox" id="highlightCategoryRule">同文件名前缀的现有视频和新视频都使用此分类</label>
+      <p class="section-note">只修改网站分类，不移动或重命名原文件。留空并勾选可移除对应的分类规则。</p>
+      <button type="submit" id="highlightCategorySave">保存分类</button>
+    </form>
+  </dialog>
   <dialog class="highlight-dialog" id="highlightDialog">
     <div class="highlight-dialog-body">
       <div class="dialog-head"><h2 id="highlightDialogTitle">精彩时刻</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
@@ -227,6 +244,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/app.js?v=20260910-1"></script>
+  <script type="module" src="/app.js?v=20260911-1"></script>
 </body>
 </html>

@@ -32,9 +32,25 @@ export function canUseDirectLocalPlayback(item) {
     && item.url.startsWith("/media/highlights/");
 }
 
-export function filteredHighlightEntries(items = [], type = "video") {
+export function highlightCategories(items = [], type = "video") {
+  const counts = new Map();
+  for (const item of items) if (item.type === type) {
+    const label = item.gameCategory || "未分类";
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  return [...counts].sort((a, b) => (a[0] === "未分类") - (b[0] === "未分类") || b[1] - a[1] || a[0].localeCompare(b[0], "zh-CN"));
+}
+
+export function filteredHighlightEntries(items = [], type = "video", { category = "", query = "", sort = "random" } = {}) {
   const activeType = normalizeHighlightType(type);
-  return items
+  const needle = query.normalize("NFKC").trim().toLocaleLowerCase();
+  const entries = items
     .map((item, sourceIndex) => ({ item, sourceIndex }))
-    .filter(({ item }) => item?.type === activeType);
+    .filter(({ item }) => item?.type === activeType
+      && (!category || (item.gameCategory || "未分类") === category)
+      && (!needle || `${item.filename} ${item.title || ""} ${item.gameCategory || "未分类"}`.normalize("NFKC").toLocaleLowerCase().includes(needle)));
+  if (sort === "newest") entries.sort((a, b) => String(b.item.modifiedAt || "").localeCompare(String(a.item.modifiedAt || "")));
+  if (sort === "name") entries.sort((a, b) => a.item.filename.localeCompare(b.item.filename, "zh-CN"));
+  if (sort === "smallest") entries.sort((a, b) => Number(a.item.size || 0) - Number(b.item.size || 0));
+  return entries;
 }

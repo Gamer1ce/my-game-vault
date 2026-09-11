@@ -16,8 +16,9 @@ import {
   canUseDirectLocalPlayback,
   filteredHighlightEntries,
   highlightCounts,
+  highlightCategories,
   normalizeHighlightType
-} from "./highlight-gallery.js?v=20260820-2";
+} from "./highlight-gallery.js?v=20260911-1";
 import { createHeroSequence } from "./hero-sequence.js?v=20260718-1";
 import { createBirthdayHintCycle } from "./birthday-hint.js?v=20260724-1";
 import { playbackStartupState, STARTUP_WAIT_MS } from "./playback-startup.js?v=20260910-1";
@@ -75,6 +76,7 @@ function renderSecurity() {
   $("#adminButton").textContent = state.security.canManage ? "退出管理" : "管理员登录";
   renderMediaPower();
   renderProviders();
+  if (state.highlights.length) renderHighlights();
 }
 
 function renderMediaPower() {
@@ -544,7 +546,12 @@ function formatFileSize(bytes) {
 function renderHighlights() {
   const activeType = normalizeHighlightType(state.highlightFilter);
   const counts = highlightCounts(state.highlights);
-  const entries = filteredHighlightEntries(state.highlights, activeType);
+  const categories = highlightCategories(state.highlights, activeType);
+  const categorySelect = $("#highlightCategory");
+  const selected = categories.some(([label]) => label === categorySelect.value) ? categorySelect.value : "";
+  categorySelect.innerHTML = `<option value="">全部游戏（${counts[activeType]}）</option>` + categories.map(([label, count]) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}（${count}）</option>`).join("");
+  categorySelect.value = selected;
+  const entries = filteredHighlightEntries(state.highlights, activeType, { category: selected, query: $("#highlightSearch").value, sort: $("#highlightSort").value });
   const visibleCount = Math.min(state.visibleHighlights[activeType], entries.length);
   $("#highlightCount").textContent = `${activeType === "video" ? "VIDEO" : "CAPTURE"} // ${String(entries.length).padStart(2, "0")}`;
   $("#highlightVideoCount").textContent = String(counts.video);
@@ -564,7 +571,9 @@ function renderHighlights() {
       ? `<span class="highlight-static-preview" aria-hidden="true">${url ? "LOCAL // PREVIEW" : "REMOTE // ORIGINAL"}</span>${posterUrl ? `<img class="highlight-preview-image" src="${escapeHtml(posterUrl)}" alt="" loading="lazy" decoding="async" fetchpriority="low">` : ""}<span class="highlight-play" aria-hidden="true">▶</span>`
       : `<img src="${escapeHtml(posterUrl || url)}" alt="${title}" loading="lazy" decoding="async" fetchpriority="low">`;
     const remoteLabel = item.type === "video" && item.remoteAvailable ? `<em class="highlight-cloud">${item.storageSource === "baidu" ? "百度云原画" : "云端原画"}</em>` : "";
-    return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${sourceIndex}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button></article>`;
+    const category = escapeHtml(item.gameCategory || "未分类");
+    const manage = state.security.canManage ? `<button class="highlight-category-edit" type="button" data-category-index="${sourceIndex}" aria-label="修改 ${title} 的分类">修改分类</button>` : "";
+    return `<article class="highlight-card"><button class="highlight-open" type="button" data-highlight-index="${sourceIndex}" aria-label="查看 ${title}"><span class="highlight-media">${media}</span><span class="highlight-meta"><span class="highlight-game-name">${category}</span><strong>${title}</strong><small>${item.type === "video" ? "视频" : "截图"} · ${escapeHtml(date)} · ${formatFileSize(item.size)} ${remoteLabel}</small></span></button>${manage}</article>`;
   }).join("");
   const remaining = Math.max(0, entries.length - visibleCount);
   const loadMore = $("#highlightLoadMore");
@@ -578,6 +587,9 @@ function renderHighlights() {
   if (state.highlightStorage.customDirectory && !state.highlightStorage.available) {
     emptyTitle.textContent = "外置媒体库未连接";
     emptyMessage.textContent = "连接保存精彩时刻的外置硬盘，然后刷新页面。";
+  } else if (entries.length === 0 && (selected || $("#highlightSearch").value.trim())) {
+    emptyTitle.textContent = "没有匹配的记录";
+    emptyMessage.textContent = "试试其他游戏分类，或清空搜索关键词。";
   } else if (entries.length === 0 && state.highlights.length > 0) {
     const label = activeType === "video" ? "视频" : "截图";
     const alternate = activeType === "video" ? "截图" : "视频";
@@ -593,7 +605,7 @@ function renderHighlights() {
   $("#highlightEmpty").classList.toggle("hidden", entries.length > 0);
 }
 
-async function loadHighlights() {
+async function loadHighlights({ preserveView = false } = {}) {
   const result = await api("/api/highlights");
   if (result.mediaPower) {
     state.mediaPower = result.mediaPower;
@@ -601,7 +613,7 @@ async function loadHighlights() {
   }
   state.highlights = arrangeHighlightsForPlayback(Array.isArray(result.highlights) ? result.highlights : []);
   const counts = highlightCounts(state.highlights);
-  state.highlightFilter = counts.video > 0 || counts.image === 0 ? "video" : "image";
+  if (!preserveView) state.highlightFilter = counts.video > 0 || counts.image === 0 ? "video" : "image";
   state.visibleHighlights = { video: HIGHLIGHT_INITIAL_COUNT, image: HIGHLIGHT_INITIAL_COUNT };
   state.highlightStorage = {
     available: result.available !== false,
@@ -1087,7 +1099,43 @@ $("#highlightFilters").addEventListener("click", (event) => {
   const button = event.target.closest("button[data-highlight-filter]");
   if (!button || button.dataset.highlightFilter === state.highlightFilter) return;
   state.highlightFilter = normalizeHighlightType(button.dataset.highlightFilter);
+  $("#highlightCategory").value = "";
   renderHighlights();
+});
+for (const id of ["highlightCategory", "highlightSearch", "highlightSort"]) {
+  $(`#${id}`).addEventListener(id === "highlightSearch" ? "input" : "change", () => {
+    state.visibleHighlights[state.highlightFilter] = HIGHLIGHT_INITIAL_COUNT;
+    renderHighlights();
+  });
+}
+$("#highlightRefresh").addEventListener("click", async () => {
+  const button = $("#highlightRefresh"); button.disabled = true;
+  try { await loadHighlights({ preserveView: true }); toast("媒体库与游戏分类已更新"); }
+  catch (error) { toast(error.message); } finally { button.disabled = false; }
+});
+let editingHighlightCategory = null;
+$("#highlightGrid").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-category-index]");
+  if (!button || !state.security.canManage) return;
+  editingHighlightCategory = state.highlights[Number(button.dataset.categoryIndex)];
+  const item = editingHighlightCategory;
+  $("#highlightCategoryFilename").textContent = item.filename;
+  $("#highlightCategoryName").value = item.gameCategory === "未分类" ? "" : item.gameCategory || "";
+  $("#highlightCategoryRule").checked = false;
+  $("#highlightCategoryRule").disabled = !item.categoryPrefix;
+  $("#highlightCategoryNames").innerHTML = highlightCategories(state.highlights, item.type).filter(([name]) => name !== "未分类").map(([name]) => `<option value="${escapeHtml(name)}"></option>`).join("");
+  $("#highlightCategoryDialog").showModal();
+});
+$("#highlightCategoryForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!editingHighlightCategory || !state.security.canManage) return;
+  const button = $("#highlightCategorySave"); button.disabled = true;
+  const { filename, storageSource, playbackId } = editingHighlightCategory;
+  try {
+    await api("/api/highlights/category", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ filename, storageSource, playbackId, label: $("#highlightCategoryName").value, applyToPrefix: $("#highlightCategoryRule").checked }) });
+    $("#highlightCategoryDialog").close();
+    await loadHighlights({ preserveView: true }); toast("分类已保存");
+  } catch (error) { toast(error.message); } finally { button.disabled = false; }
 });
 $("#highlightLoadMore").addEventListener("click", () => { state.visibleHighlights[state.highlightFilter] += HIGHLIGHT_PAGE_SIZE; renderHighlights(); });
 $("#highlightCollapse").addEventListener("click", () => {

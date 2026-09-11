@@ -21,6 +21,7 @@ import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, 
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats, supportedHighlightImageFormats, supportedHighlightVideoFormats } from "./src/highlights.mjs";
 import { createHighlightPosterService } from "./src/highlight-posters.mjs";
+import { classifyHighlights, createHighlightCategoryStore, mediaCategoryKey } from "./src/highlight-categories.mjs";
 import { apiCacheControl, staticCacheControl } from "./src/http-cache.mjs";
 import { createGameSyncTargets } from "./src/game-sync-plan.mjs";
 import { createSyncRunner } from "./src/sync-runner.mjs";
@@ -48,6 +49,7 @@ mkdirSync(dataDir, { recursive: true });
 const defaultHighlightsDir = path.join(dataDir, "highlights");
 mkdirSync(defaultHighlightsDir, { recursive: true });
 const db = new DatabaseSync(path.join(dataDir, "games.db"));
+const highlightCategories = createHighlightCategoryStore(db);
 const credentials = new CredentialStore(dataDir);
 const remoteMedia = createRemoteMediaService({ dataDirectory: dataDir });
 const baiduStream = createBaiduStreamService({ dataDirectory: dataDir });
@@ -1204,12 +1206,12 @@ app.post("/api/sync/all", async (_req, res, next) => {
   }
 });
 
-app.get("/api/highlights", async (_req, res) => {
+async function currentHighlightLibrary() {
   const power = mediaPower.status();
   const storage = resolveHighlightsDirectory(dataDir);
   let available = false;
   try { available = statSync(storage.directory).isDirectory(); } catch { available = false; }
-  const localHighlights = available ? listHighlights(storage.directory) : [];
+  const localHighlights = available ? listHighlights(storage.directory, 5000) : [];
   let manifest = { files: {} };
   try { manifest = remoteMedia.manifest(); } catch (error) { console.error(error.message); }
   let baiduHighlights = [];
@@ -1218,8 +1220,8 @@ app.get("/api/highlights", async (_req, res) => {
     .sort((a, b) => Number(a.size || 0) - Number(b.size || 0)
       || String(b.modifiedAt || "").localeCompare(String(a.modifiedAt || ""))
       || a.filename.localeCompare(b.filename, "zh-CN"));
-  res.json({
-    highlights,
+  return {
+    highlights: classifyHighlights(highlights, { games: listGames.all(), ...highlightCategories.snapshot() }),
     total: highlights.length,
     available,
     customDirectory: storage.custom,
@@ -1230,7 +1232,23 @@ app.get("/api/highlights", async (_req, res) => {
     directMediaOrigin,
     mirrorMediaOrigin,
     mediaPower: power
-  });
+  };
+}
+
+app.get("/api/highlights", async (_req, res, next) => {
+  try { res.json(await currentHighlightLibrary()); } catch (error) { next(error); }
+});
+
+app.put("/api/highlights/category", async (req, res, next) => {
+  try {
+    if (syncRequestQueue.enabled) return res.status(409).json({ error: "请在主站管理员模式修改分类，分类会随数据同步到备用站" });
+    const items = (await currentHighlightLibrary()).highlights;
+    const item = items.find((candidate) => mediaCategoryKey(candidate) === mediaCategoryKey(req.body || {}));
+    if (!item) return res.status(404).json({ error: "视频已不存在，请刷新媒体库" });
+    try { highlightCategories.set(item, req.body.label, req.body.applyToPrefix === true); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+    res.json({ saved: true });
+  } catch (error) { next(error); }
 });
 
 app.get("/api/highlights/playback", async (req, res) => {
