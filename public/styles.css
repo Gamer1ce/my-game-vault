@@ -303,11 +303,14 @@ h1 {
   transition: color .12s ease, background .12s ease, transform .12s ease;
 }
 .hero-sequence-trigger::after {
-  content: "▶";
-  margin-left: .7em;
-  font-size: .28em;
-  letter-spacing: 0;
-  transform: translateY(.05em);
+  content: "";
+  flex: 0 0 auto;
+  width: .22em;
+  height: .32em;
+  margin-left: .28em;
+  background: currentColor;
+  clip-path: polygon(0 0, 32% 0, 100% 50%, 32% 100%, 0 100%, 68% 50%);
+  transform: translateY(.025em);
 }
 .hero-sequence-title[data-state="idle"] .hero-sequence-trigger:hover {
   color: #080a0c;
