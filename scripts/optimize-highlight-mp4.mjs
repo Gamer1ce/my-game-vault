@@ -2,7 +2,7 @@ import { chmodSync, renameSync, statSync, unlinkSync, utimesSync } from "node:fs
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { listHighlights, resolveHighlightsDirectory } from "../src/highlights.mjs";
+import { listHighlights, resolveHighlightFile, resolveHighlightsDirectory } from "../src/highlights.mjs";
 import { fastStartStatus } from "../src/mp4-faststart.mjs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -21,9 +21,9 @@ let skipped = 0;
 let failed = 0;
 for (let index = 0; index < videos.length; index += 1) {
   const item = videos[index];
-  const source = path.join(storage.directory, item.filename);
   const label = `[${index + 1}/${videos.length}] ${item.filename}`;
   try {
+    const { file: source } = resolveHighlightFile(storage.directory, item.filename);
     const before = fastStartStatus(source);
     if (!before.supported) {
       failed += 1;
@@ -41,7 +41,7 @@ for (let index = 0; index < videos.length; index += 1) {
     }
 
     const extension = path.extname(item.filename).toLowerCase();
-    const temporary = path.join(storage.directory, `.${path.basename(item.filename, extension)}.${process.pid}.faststart${extension}`);
+    const temporary = path.join(path.dirname(source), `.${path.basename(item.filename, extension)}.${process.pid}.faststart${extension}`);
     try {
       const original = statSync(source);
       const result = spawnSync(ffmpeg, [

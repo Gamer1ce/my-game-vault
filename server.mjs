@@ -19,7 +19,7 @@ import { createMetacriticConnector } from "./src/metacritic.mjs";
 import { providers } from "./src/providers.mjs";
 import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, monthEnd, recentDateRange, reconciledLifetimeMinutes, shanghaiDate } from "./src/activity.mjs";
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
-import { listHighlights, resolveHighlightsDirectory, supportedHighlightFormats, supportedHighlightImageFormats, supportedHighlightVideoFormats } from "./src/highlights.mjs";
+import { listHighlights, resolveHighlightFile, isSafeHighlightPath, resolveHighlightsDirectory, supportedHighlightFormats, supportedHighlightImageFormats, supportedHighlightVideoFormats } from "./src/highlights.mjs";
 import { createHighlightPosterService } from "./src/highlight-posters.mjs";
 import { classifyHighlights, createHighlightCategoryStore, mediaCategoryKey } from "./src/highlight-categories.mjs";
 import { apiCacheControl, staticCacheControl } from "./src/http-cache.mjs";
@@ -429,13 +429,10 @@ app.put("/api/media/power", (req, res) => {
 app.get("/media/highlight-posters/:filename", async (req, res) => {
   const filename = String(req.params.filename || "");
   const extension = path.extname(filename).toLowerCase();
-  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightVideoFormats.includes(extension)) return res.status(404).end();
+  if (!isSafeHighlightPath(filename) || !supportedHighlightVideoFormats.includes(extension)) return res.status(404).end();
   try {
     const { directory } = resolveHighlightsDirectory(dataDir);
-    const realDirectory = realpathSync(directory);
-    const file = path.join(realDirectory, filename);
-    const stats = lstatSync(file);
-    if (!stats.isFile() || stats.isSymbolicLink()) return res.status(404).end();
+    const { file, stats } = resolveHighlightFile(directory, filename);
     const poster = await highlightPosters.posterFor(file, filename, stats);
     res.set({
       "Cache-Control": "public, max-age=31536000, immutable",
@@ -453,13 +450,10 @@ app.get("/media/highlight-posters/:filename", async (req, res) => {
 app.get("/media/highlight-thumbnails/:filename", async (req, res) => {
   const filename = String(req.params.filename || "");
   const extension = path.extname(filename).toLowerCase();
-  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightImageFormats.includes(extension)) return res.status(404).end();
+  if (!isSafeHighlightPath(filename) || !supportedHighlightImageFormats.includes(extension)) return res.status(404).end();
   try {
     const { directory } = resolveHighlightsDirectory(dataDir);
-    const realDirectory = realpathSync(directory);
-    const file = path.join(realDirectory, filename);
-    const stats = lstatSync(file);
-    if (!stats.isFile() || stats.isSymbolicLink()) return res.status(404).end();
+    const { file, stats } = resolveHighlightFile(directory, filename);
     const thumbnail = await highlightPosters.posterFor(file, filename, stats, { seekSeconds: 0 });
     res.set({
       "Cache-Control": "public, max-age=31536000, immutable",
@@ -490,13 +484,10 @@ app.options("/media/highlights/:filename", (_req, res) => {
 });
 app.get("/media/highlights/:filename", (req, res) => {
   const filename = String(req.params.filename || "");
-  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) return res.status(404).end();
+  if (!isSafeHighlightPath(filename) || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) return res.status(404).end();
   try {
     const { directory } = resolveHighlightsDirectory(dataDir);
-    const realDirectory = realpathSync(directory);
-    const file = path.join(realDirectory, filename);
-    const stats = lstatSync(file);
-    if (!stats.isFile() || stats.isSymbolicLink()) return res.status(404).end();
+    const { stats, realDirectory } = resolveHighlightFile(directory, filename);
     const strongEtag = `"${stats.size.toString(16)}-${Math.trunc(stats.mtimeMs).toString(16)}"`;
     res.set({
       "Cache-Control": "public, max-age=31536000, immutable",
@@ -1254,7 +1245,7 @@ app.put("/api/highlights/category", async (req, res, next) => {
 app.get("/api/highlights/playback", async (req, res) => {
   const filename = String(req.query.filename || "");
   const storageSource = String(req.query.source || "default");
-  if (!filename || filename.startsWith(".") || path.basename(filename) !== filename || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase())) {
+  if (!isSafeHighlightPath(filename) || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase()) || (storageSource === "baidu" && path.basename(filename) !== filename)) {
     return res.status(400).json({ error: "媒体文件名无效" });
   }
 

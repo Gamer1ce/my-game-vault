@@ -34,6 +34,8 @@ test("远程媒体配置默认关闭且限制签名时长", () => {
 
 test("对象键拒绝路径穿越并正确编码公开URL", () => {
   assert.equal(remoteObjectKey("highlights", "游戏 录像.webm"), "highlights/游戏 录像.webm");
+  assert.equal(remoteObjectKey("highlights", "PS5/游戏/录像.webm"), "highlights/PS5/游戏/录像.webm");
+  assert.throws(() => remoteObjectKey("highlights", "PS5/../secret.mp4"), /文件名无效/);
   assert.throws(() => remoteObjectKey("highlights", "../secret.mp4"), /文件名无效/);
   assert.equal(publicObjectUrl("https://media.example.com/", "highlights/游戏 录像.webm"), "https://media.example.com/highlights/%E6%B8%B8%E6%88%8F%20%E5%BD%95%E5%83%8F.webm");
   assert.throws(() => publicObjectUrl("http://media.example.com", "a.mp4"), /HTTPS/);

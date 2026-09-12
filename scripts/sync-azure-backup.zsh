@@ -54,6 +54,12 @@ fi
 
 sqlite3 "$database_file" ".backup '$snapshot_dir/games.db'"
 
+remote_free_kb=$(ssh -i "$ssh_key" -o BatchMode=yes -o ConnectTimeout=20 "$remote_host" "df -Pk '$remote_root' | tail -1 | awk '{print \$4}'")
+if [[ ! "$remote_free_kb" =~ '^[0-9]+$' ]] || (( remote_free_kb < 2097152 )); then
+  echo "$log_prefix blocked: Azure has less than 2 GiB free; preserving the existing database and media" >&2
+  exit 1
+fi
+
 ssh -i "$ssh_key" -o BatchMode=yes -o ConnectTimeout=20 "$remote_host" \
   "mkdir -p '$remote_root/incoming' '$remote_root/data' '$remote_root/media'"
 
@@ -96,7 +102,24 @@ fi
 if [[ "${AZURE_BACKUP_SKIP_MEDIA:-0}" == "1" ]]; then
   echo "$log_prefix media skipped: data-only request"
 elif [[ -d "$media_dir" ]]; then
+  # Refuse a mirror that cannot fit, retaining 2 GiB for the website/database.
+  # Do not delete existing remote media to make room automatically.
+  source_media_bytes=$(node --input-type=module -e 'import {pathToFileURL} from "node:url"; const {listHighlights}=await import(pathToFileURL(process.argv[1])); console.log(listHighlights(process.argv[2], Infinity).reduce((n,f)=>n+f.size,0));' "$project_dir/src/highlights.mjs" "$media_dir")
+  remote_capacity=$(ssh -i "$ssh_key" -o BatchMode=yes "$remote_host" "df -Pk '$remote_root/media' | tail -1 | awk '{print \$4}'; du -sk '$remote_root/media' | awk '{print \$1}'")
+  remote_free_kb=$(print -r -- "$remote_capacity" | head -1)
+  remote_media_kb=$(print -r -- "$remote_capacity" | tail -1)
+  if [[ ! "$source_media_bytes" =~ '^[0-9]+$' || ! "$remote_free_kb" =~ '^[0-9]+$' || ! "$remote_media_kb" =~ '^[0-9]+$' ]]; then
+    echo "$log_prefix media blocked: cannot verify mirror capacity" >&2
+    exit 1
+  fi
+  if (( remote_free_kb < 2097152 || source_media_bytes > (remote_free_kb + remote_media_kb - 2097152) * 1024 )); then
+    echo "$log_prefix media blocked: insufficient Azure disk space; database synchronized, media left unchanged" >&2
+    exit 1
+  fi
   rsync -az --delete-delay --partial --partial-dir=.rsync-partial \
+    --exclude='.*' \
+    --exclude='System Volume Information/' \
+    --exclude='$RECYCLE.BIN/' \
     --exclude='.DS_Store' \
     --exclude='._*' \
     --exclude='.Spotlight-V100/' \

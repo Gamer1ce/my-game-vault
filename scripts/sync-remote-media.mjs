@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
-import { listHighlights, resolveHighlightsDirectory } from "../src/highlights.mjs";
+import { listHighlights, resolveHighlightFile, resolveHighlightsDirectory } from "../src/highlights.mjs";
 import {
   createRemoteMediaClient,
   readRemoteMediaManifest,
@@ -75,7 +75,7 @@ for (let index = 0; index < videos.length; index += 1) {
       params: {
         Bucket: config.bucket,
         Key: key,
-        Body: createReadStream(path.join(storage.directory, item.filename)),
+        Body: createReadStream(resolveHighlightFile(storage.directory, item.filename).file),
         ContentLength: item.size,
         ContentType: contentTypes.get(path.extname(item.filename).toLowerCase()) || "application/octet-stream",
         CacheControl: "public, max-age=3600"

@@ -8,8 +8,19 @@ const aliases = [
   ["NINJA GAIDEN 4", "NINJAGAIDEN4"],
   ["DOOM: The Dark Ages"], ["Tom Clancy's Rainbow Six Siege"],
   ["Call of Duty: Infinite Warfare"], ["Warhammer 40,000: Darktide"],
-  ["A Plague Tale: Requiem"], ["Counter-Strike 2"], ["The Outlast Trials"]
+  ["A Plague Tale: Requiem"], ["Counter-Strike 2"], ["The Outlast Trials"],
+  ["Splatoon 3", "Splatoon 3（斯普拉遁 3）"]
 ];
+
+export function folderGameName(filename) {
+  const generic = new Set(["ps5", "ps4", "playstation", "switch", "nintendo", "xbox", "steam", "pc", "create", "videoclips", "video", "videos", "screenshots", "screens", "captures", "xboxgamedvr", "xboxscreenshots", "其他", "其它", "other", "unknown", "未分类"]);
+  const folders = String(filename || "").split("/").slice(0, -1);
+  for (const folder of folders.reverse()) {
+    if (generic.has(categoryKey(folder)) || !/\p{L}/u.test(folder)) continue;
+    return folder.normalize("NFKC").replace(/_/g, " ").trim().slice(0, 100);
+  }
+  return "";
+}
 
 export function filenameGamePrefix(filename) {
   const stem = path.basename(String(filename || ""), path.extname(String(filename || ""))).normalize("NFKC");
@@ -40,9 +51,11 @@ export function classifyHighlights(items, { games = [], overrides = [], rules = 
     const override = manual.get(mediaCategoryKey(item));
     const rule = key && learned.get(key);
     const known = names.get(key);
+    const folder = folderGameName(item.filename);
+    const folderLabel = names.get(categoryKey(folder)) || folder;
     const plausible = /\p{L}/u.test(prefix) && !/^(wingdk|java-runtime-beta|desktop|screen|recording|video|unknown|游戏|录屏|录像)$/i.test(prefix);
-    const label = override || rule || known || (plausible ? prefix : "未分类");
-    return { ...item, gameCategory: label, categorySource: override ? "manual" : rule ? "rule" : label === "未分类" ? "unknown" : "filename", categoryPrefix: prefix };
+    const label = override || rule || known || folderLabel || (plausible ? prefix : "未分类");
+    return { ...item, gameCategory: label, categorySource: override ? "manual" : rule ? "rule" : known ? "filename" : folderLabel ? "folder" : label === "未分类" ? "unknown" : "filename", categoryPrefix: prefix };
   });
 }
 

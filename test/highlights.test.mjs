@@ -1,9 +1,48 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { highlightTitle, listHighlights, resolveHighlightsDirectory } from "../src/highlights.mjs";
+import { highlightTitle, listHighlights, resolveHighlightFile, isSafeHighlightPath, resolveHighlightsDirectory } from "../src/highlights.mjs";
+
+test("递归扫描保留完整路径、根目录链接和同名文件", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "recursive-media-"));
+  try {
+    for (const folder of ["PS5/CREATE/Video Clips/游戏 A", "SWITCH/游戏 B"]) {
+      mkdirSync(path.join(root, folder), { recursive: true });
+      writeFileSync(path.join(root, folder, "same.mp4"), folder);
+    }
+    writeFileSync(path.join(root, "same.mp4"), "root");
+    const items = listHighlights(root);
+    assert.equal(items.length, 3);
+    assert.equal(new Set(items.map(x => x.filename)).size, 3);
+    assert.equal(items.find(x => x.filename === "same.mp4").url.split("?")[0], "/media/highlights/same.mp4");
+    const nested = items.find(x => x.filename.startsWith("PS5/"));
+    assert.equal(nested.title, "same");
+    assert.equal(decodeURIComponent(nested.url.split("?")[0].slice("/media/highlights/".length)), nested.filename);
+    assert.equal(resolveHighlightFile(root, nested.filename).stats.size, nested.size);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("隐藏目录、回收站和符号链接既不列出也不能直接读取", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "safe-media-"));
+  const outside = mkdtempSync(path.join(tmpdir(), "outside-media-"));
+  try {
+    writeFileSync(path.join(outside, "secret.mp4"), "private");
+    for (const folder of [".Trashes", "$RECYCLE.BIN", "System Volume Information", ".private"]) {
+      mkdirSync(path.join(root, folder)); writeFileSync(path.join(root, folder, "clip.mp4"), "private");
+      assert.throws(() => resolveHighlightFile(root, `${folder}/clip.mp4`));
+    }
+    symlinkSync(outside, path.join(root, "linked-folder"));
+    symlinkSync(path.join(outside, "secret.mp4"), path.join(root, "linked.mp4"));
+    assert.equal(listHighlights(root).length, 0);
+    assert.throws(() => resolveHighlightFile(root, "linked-folder/secret.mp4"));
+    assert.throws(() => resolveHighlightFile(root, "linked.mp4"));
+    for (const name of ["../secret.mp4", "/tmp/secret.mp4", "a/../secret.mp4", "a\\secret.mp4", "a//b.mp4", "a/./b.mp4", "a/\0b.mp4"]) {
+      assert.equal(isSafeHighlightPath(name), false, name);
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); rmSync(outside, { recursive: true, force: true }); }
+});
 
 test("精彩时刻只列出受支持的普通媒体文件", () => {
   const directory = mkdtempSync(path.join(tmpdir(), "game-vault-highlights-"));

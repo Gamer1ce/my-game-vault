@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, lstatSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
@@ -43,30 +43,57 @@ export function resolveHighlightsDirectory(dataDirectory, { environment = proces
   return { directory: path.join(dataDirectory, "highlights"), custom: false, source: "default" };
 }
 
+const excludedDirectories = new Set(["system volume information", "$recycle.bin"]);
+export function isSafeHighlightPath(value) {
+  if (typeof value !== "string" || !value || value.length > 4096 || /[\\\x00-\x1f]/.test(value)) return false;
+  const parts = value.split("/");
+  return parts.length <= 32 && parts.every(part => part && !part.startsWith(".") && !excludedDirectories.has(part.toLowerCase()));
+}
+
+export function resolveHighlightFile(directory, filename) {
+  if (!isSafeHighlightPath(filename)) throw new Error("媒体路径无效");
+  const realDirectory = realpathSync(directory);
+  let file = realDirectory;
+  let stats;
+  const parts = filename.split("/");
+  for (let index = 0; index < parts.length; index += 1) {
+    file = path.join(file, parts[index]);
+    stats = lstatSync(file);
+    if (stats.isSymbolicLink() || (index < parts.length - 1 && !stats.isDirectory())) throw new Error("媒体路径不允许符号链接");
+  }
+  if (!stats?.isFile() || !realpathSync(file).startsWith(`${realDirectory}${path.sep}`)) throw new Error("媒体路径越界");
+  return { file, stats, realDirectory };
+}
+
 export function listHighlights(directory, limit = 500) {
   const items = [];
+  function walk(relativeDirectory = "") {
   let entries;
   try {
-    entries = readdirSync(directory, { withFileTypes: true });
+    entries = readdirSync(path.join(directory, relativeDirectory), { withFileTypes: true });
   } catch {
-    return items;
+    return;
   }
   for (const entry of entries) {
-    if (!entry.isFile() || entry.name.startsWith(".")) continue;
+    const filename = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+    if (!isSafeHighlightPath(filename) || entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) { walk(filename); continue; }
+    if (!entry.isFile()) continue;
     const extension = path.extname(entry.name).toLowerCase();
     const type = mediaExtensions.get(extension);
     if (!type) continue;
     try {
-      const stats = statSync(path.join(directory, entry.name));
+      const { stats } = resolveHighlightFile(directory, filename);
       const version = Math.trunc(stats.mtimeMs);
       items.push({
-        filename: entry.name,
+        filename,
+        folder: relativeDirectory,
         title: highlightTitle(entry.name),
         type,
-        url: `/media/highlights/${encodeURIComponent(entry.name)}?v=${version}`,
+        url: `/media/highlights/${encodeURIComponent(filename)}?v=${version}`,
         posterUrl: type === "video"
-          ? `/media/highlight-posters/${encodeURIComponent(entry.name)}?v=${version}`
-          : `/media/highlight-thumbnails/${encodeURIComponent(entry.name)}?v=${version}`,
+          ? `/media/highlight-posters/${encodeURIComponent(filename)}?v=${version}`
+          : `/media/highlight-thumbnails/${encodeURIComponent(filename)}?v=${version}`,
         size: stats.size,
         modifiedAt: stats.mtime.toISOString()
       });
@@ -74,6 +101,8 @@ export function listHighlights(directory, limit = 500) {
       // 文件可能恰好在扫描时被移动；下一次刷新会重新读取。
     }
   }
+  }
+  walk();
   return items.sort((a, b) => a.size - b.size || b.modifiedAt.localeCompare(a.modifiedAt) || a.filename.localeCompare(b.filename, "zh-CN")).slice(0, limit);
 }
 

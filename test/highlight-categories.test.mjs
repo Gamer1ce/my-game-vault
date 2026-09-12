@@ -4,6 +4,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { classifyHighlights, createHighlightCategoryStore } from '../src/highlight-categories.mjs';
 import { filteredHighlightEntries, highlightCategories } from '../public/highlight-gallery.js';
 const video = (filename, extra = {}) => ({filename, type:'video', ...extra});
+test('时间戳录像使用游戏文件夹名，平台和通用文件夹不作为游戏', () => {
+  const files = ['SWITCH/Splatoon 3（斯普拉遁 3）/2024090221114100_c.mp4', 'PS5/CREATE/Video Clips/DEATH STRANDING 2_ ON THE BEACH/202510.mp4', 'XBOX/Xbox Game DVR/2025011122515800_s.mp4', 'SWITCH/其他/2025011122515800_s.mp4'];
+  assert.deepEqual(classifyHighlights(files.map(n=>video(n))).map(x=>x.gameCategory), ['Splatoon 3','DEATH STRANDING 2  ON THE BEACH','未分类','未分类']);
+});
 test('录屏命名和全角中英文分类统一', () => {
   const names = ['The Finals 2026.09.09.DVR.mp4','THE FINALS-2026_05_03.mp4','女神异闻录３ Reload-2025_08_07.mp4','Apex Legends_20251207181720.webm','[星露谷物语] 春日.mp4'];
   assert.deepEqual(classifyHighlights(names.map(n=>video(n))).map(x=>x.gameCategory), ['THE FINALS','THE FINALS','Persona 3 Reload','Apex Legends','星露谷物语']);

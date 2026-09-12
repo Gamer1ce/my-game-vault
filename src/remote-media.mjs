@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { isSafeHighlightPath } from "./highlights.mjs";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -55,7 +56,7 @@ export function remoteMediaConfiguration(environment = process.env) {
 
 export function remoteObjectKey(prefix, filename) {
   const name = String(filename || "");
-  if (!name || name.startsWith(".") || path.basename(name) !== name || name.includes("\0")) throw new Error("媒体文件名无效");
+  if (!isSafeHighlightPath(name)) throw new Error("媒体文件名无效");
   const cleanPrefix = String(prefix || "").replace(/^\/+|\/+$/g, "");
   return cleanPrefix ? `${cleanPrefix}/${name}` : name;
 }
@@ -85,7 +86,7 @@ export function mergeRemoteHighlights(localHighlights, manifest, { remoteEnabled
   const merged = localHighlights.map((item) => ({ ...item, remoteAvailable: Boolean(remoteFiles[item.filename]) }));
 
   for (const [filename, item] of Object.entries(remoteFiles)) {
-    if (localNames.has(filename) || item?.type !== "video") continue;
+    if (!isSafeHighlightPath(filename) || localNames.has(filename) || item?.type !== "video") continue;
     merged.push({
       filename,
       title: item.title || filename,
