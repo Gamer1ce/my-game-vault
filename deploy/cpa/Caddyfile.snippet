@@ -1,0 +1,41 @@
+# Place inside the HTTPS site block. The upstream must require strong API keys.
+# No API key belongs in this file. Keep CPA host ports bound to localhost.
+	handle_path /cpa/* {
+		header {
+			Cache-Control "no-store"
+			CDN-Cache-Control "no-store"
+			X-Content-Type-Options "nosniff"
+			X-Robots-Tag "noindex, nofollow, noarchive"
+			Referrer-Policy "no-referrer"
+			-Access-Control-Allow-Origin
+			-Access-Control-Allow-Credentials
+			-Server
+		}
+		route {
+			@query expression {http.request.uri.query} != ""
+			respond @query "Query parameters are disabled on this private API." 400
+			@api {
+				path /v1/models /v1/chat/completions /v1/completions /v1/responses /v1/responses/compact /v1/messages /v1/messages/count_tokens
+				method GET POST
+			}
+			handle @api {
+				@missingBearer not header_regexp Authorization "(?i)^Bearer [^[:space:]]{32,}$"
+				respond @missingBearer "Unauthorized" 401
+				request_body {
+					max_size 16MB
+				}
+				reverse_proxy cli-proxy-api:8317 {
+					flush_interval -1
+					header_up -Cookie
+					header_up -X-Api-Key
+					header_up -X-Goog-Api-Key
+					header_up -X-Management-Key
+					transport http {
+						dial_timeout 5s
+						max_conns_per_host 8
+					}
+				}
+			}
+			respond 404
+		}
+	}
