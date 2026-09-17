@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#fcee0a">
+  <meta name="robots" content="noindex,nofollow">
+  <title>AI 用量 · 中枢圣殿</title>
+  <link rel="icon" href="/icons/favicon-32-v3.png">
+  <link rel="stylesheet" href="/styles.css?v=20260917-1">
+  <link rel="stylesheet" href="/ai-usage.css?v=20260917-1">
+  <script type="module" src="/ai-usage.js?v=20260917-1"></script>
+</head>
+<body class="usage-page">
+  <header class="usage-header">
+    <a class="brand" href="/"><b>SANCTUARY//NEXUS</b><small>中枢圣殿</small></a>
+    <a class="ghost" href="/">返回游戏档案</a>
+  </header>
+  <main class="usage-main">
+    <div class="usage-heading"><div><h1>AI 用量</h1><p id="usageStatus" role="status">正在读取用量…</p></div><button class="ghost" id="refreshUsage">刷新数据</button></div>
+    <section class="usage-stats" aria-label="累计用量">
+      <article><span>累计请求</span><strong id="requests">—</strong></article>
+      <article><span>累计 Token</span><strong id="totalTokens">—</strong></article>
+      <article><span>请求成功率</span><strong id="successRate">—</strong></article>
+      <article><span>今日请求</span><strong id="todayRequests">—</strong></article>
+    </section>
+    <section class="usage-panel">
+      <div class="usage-heading"><h2>最近 30 天</h2><label>显示<select id="chartMetric"><option value="requests">请求次数</option><option value="totalTokens">Token 用量</option></select></label></div>
+      <div id="usageChart" class="usage-chart" aria-label="每日用量图"></div>
+      <p class="usage-note">按北京时间统计；仅包含 KEEPER 已收集的记录，不代表账户全部历史用量。</p>
+      <details><summary>查看每日明细</summary><div class="usage-table-wrap"><table><thead><tr><th>日期</th><th>请求</th><th>成功</th><th>失败</th><th>Token</th></tr></thead><tbody id="usageDays"></tbody></table></div></details>
+    </section>
+    <section class="usage-breakdown" aria-label="Token 明细">
+      <p>输入 Token <strong id="inputTokens">—</strong></p><p>输出 Token <strong id="outputTokens">—</strong></p><p>缓存读取 Token <strong id="cachedTokens">—</strong></p><p>失败请求 <strong id="failures">—</strong></p>
+    </section>
+    <section class="usage-panel usage-private">
+      <div class="usage-heading"><h2>管理员连接信息</h2><button class="ghost" id="logoutUsage" hidden>退出登录</button></div>
+      <p id="privateStatus" class="usage-note">访客仅可查看汇总用量，连接地址与密钥需管理员登录。</p>
+      <form id="usageLogin" class="usage-login">
+        <label>管理员账号<input name="username" autocomplete="username" value="admin" required maxlength="64"></label>
+        <label>管理员密码<input name="password" type="password" autocomplete="current-password" required maxlength="512"></label>
+        <button type="submit">登录</button>
+      </form>
+      <button id="revealConnection" hidden>查看连接地址与密钥</button>
+      <div id="connectionDetails" hidden></div>
+    </section>
+  </main>
+</body>
+</html>

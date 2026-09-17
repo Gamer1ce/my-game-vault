@@ -1416,6 +1416,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
 }
 @media (max-width: 560px) {
   .hero { min-height: 650px; padding-top: 20px; }
+  .hero nav { flex-wrap: wrap; gap: 10px; }
+  .hero .nav-actions { flex-wrap: wrap; }
   .brand { column-gap: 7px; font-size: 13px; }
   .brand::before { width: 6px; height: 25px; }
   .brand small { font-size: 8px; letter-spacing: .22em; }

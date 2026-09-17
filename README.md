@@ -546,6 +546,10 @@ npm start
 
 ## 数据与安全
 
+### AI 用量入口
+
+首页「AI 用量」按钮可查看 CPA / KEEPER 的只读用量汇总；只有网站管理员登录后才能查看客户端密钥与连接地址。原始管理后台不直接公开。[接入与安全说明](docs/ai-usage.md)。
+
 - 游戏数据库：`data/games.db`
 - 留言、点赞与反馈数据库：`data/community.db`
 - 加密凭据：`data/credentials.enc`

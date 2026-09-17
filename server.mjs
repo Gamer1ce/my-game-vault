@@ -34,6 +34,7 @@ import { openCommunityDatabase } from "./src/community-store.mjs";
 import { createMediaPowerStore, MEDIA_POWER_MODES } from "./src/media-power.mjs";
 import { createMinecraftPlayerLogStore } from "./src/minecraft-player-log.mjs";
 import { createMinecraftStatusService } from "./src/minecraft-status.mjs";
+import { createCpaUsageService, registerCpaUsageRoutes } from "./src/cpa-usage.mjs";
 import {
   calibratedFinalMinutes,
   matchPlaystationCalibrationRecord,
@@ -397,6 +398,11 @@ app.delete("/api/admin/session", (req, res) => {
   if (token) adminSessions.delete(token);
   res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
   res.status(204).end();
+});
+registerCpaUsageRoutes(app, {
+  service: createCpaUsageService({ databasePath: process.env.CPA_USAGE_DB, baseUrl: process.env.CPA_PUBLIC_BASE_URL }),
+  // Fail closed even if the rest of the website runs in local/no-password mode.
+  authorize: (req) => Boolean(admin) && adminAuthenticated(req) && adminTransportAllowed(req) && sameOrigin(req)
 });
 app.get("/api/media/power", (_req, res) => res.json(mediaPower.status()));
 app.get("/api/minecraft/status", async (_req, res, next) => {
