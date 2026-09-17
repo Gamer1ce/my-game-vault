@@ -35,6 +35,7 @@ import { createMediaPowerStore, MEDIA_POWER_MODES } from "./src/media-power.mjs"
 import { createMinecraftPlayerLogStore } from "./src/minecraft-player-log.mjs";
 import { createMinecraftStatusService } from "./src/minecraft-status.mjs";
 import { createCpaUsageService, registerCpaUsageRoutes } from "./src/cpa-usage.mjs";
+import { registerKeeperUiRoutes } from "./src/keeper-ui.mjs";
 import {
   calibratedFinalMinutes,
   matchPlaystationCalibrationRecord,
@@ -356,7 +357,7 @@ app.get("/api/security", (req, res) => res.json({
   adminAvailable: adminTransportAllowed(req)
 }));
 
-app.post("/api/admin/session", (req, res) => {
+function createAdminSession(req, res) {
   if (!admin) return res.json({ publicMode, canManage: true, adminAvailable: true });
   if (!sameOrigin(req)) return res.status(403).json({ error: "已拒绝跨站管理请求" });
   if (!adminTransportAllowed(req)) {
@@ -382,7 +383,8 @@ app.post("/api/admin/session", (req, res) => {
   const secure = req.secure ? "; Secure" : "";
   res.set("Set-Cookie", `mgv_admin=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionLifetime / 1000}${secure}`);
   return res.json({ publicMode, canManage: true, adminAvailable: true });
-});
+}
+app.post("/api/admin/session", createAdminSession);
 
 app.use((req, res, next) => {
   if (!admin || !req.path.startsWith("/api/") || ["GET", "HEAD", "OPTIONS"].includes(req.method)
@@ -393,16 +395,28 @@ app.use((req, res, next) => {
   next();
 });
 
-app.delete("/api/admin/session", (req, res) => {
+function destroyAdminSession(req, res) {
   const token = parseCookies(req.get("cookie")).mgv_admin;
   if (token) adminSessions.delete(token);
   res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
   res.status(204).end();
-});
+}
+app.delete("/api/admin/session", destroyAdminSession);
 registerCpaUsageRoutes(app, {
   service: createCpaUsageService({ databasePath: process.env.CPA_USAGE_DB, baseUrl: process.env.CPA_PUBLIC_BASE_URL }),
   // Fail closed even if the rest of the website runs in local/no-password mode.
   authorize: (req) => Boolean(admin) && adminAuthenticated(req) && adminTransportAllowed(req) && sameOrigin(req)
+});
+registerKeeperUiRoutes(app, {
+  origin: process.env.CPA_KEEPER_ORIGIN,
+  authorize: (req) => Boolean(admin) && adminAuthenticated(req) && adminTransportAllowed(req) && sameOrigin(req),
+  sameOrigin,
+  login: (req, res) => {
+    if (!admin) return res.status(403).json({ error: "请先配置网站管理员认证" });
+    req.body = { username: admin.username, password: req.body?.password };
+    return createAdminSession(req, res);
+  },
+  logout: destroyAdminSession
 });
 app.get("/api/media/power", (_req, res) => res.json(mediaPower.status()));
 app.get("/api/minecraft/status", async (_req, res, next) => {

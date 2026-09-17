@@ -66,7 +66,7 @@ test("访客不能直接调用连接接口，错误响应不泄露内部细节",
 test("未配置用量库时不暴露服务器路径，管理员校验失败关闭", async () => {
   const source = readFileSync(new URL("../server.mjs", import.meta.url), "utf8");
   assert.match(source, /authorize: \(req\) => Boolean\(admin\) && adminAuthenticated\(req\) && adminTransportAllowed\(req\) && sameOrigin\(req\)/);
-  const frontend = readFileSync(new URL("../public/ai-usage.js", import.meta.url), "utf8");
+  const frontend = readFileSync(new URL("../public/keeper-bridge.js", import.meta.url), "utf8");
   assert.ok(!frontend.includes("localStorage"));
   assert.ok(!frontend.includes("innerHTML"));
   assert.match(frontend, /pagehide/);

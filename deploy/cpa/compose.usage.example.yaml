@@ -1,11 +1,17 @@
 # Merge into your existing website service; keep KEEPER's port bound to loopback.
 services:
   game-vault:
+    networks: [default, cpa]
     environment:
       CPA_USAGE_DB: /cpa-usage/app.db
+      CPA_KEEPER_ORIGIN: http://cpa-usage-keeper:8080
       CPA_PUBLIC_BASE_URL: https://your-domain.example/cpa/v1
     volumes:
       - type: bind
         source: ${CPA_USAGE_DATA_DIR:?Set the absolute path to KEEPER data}
         target: /cpa-usage
         read_only: true
+networks:
+  cpa:
+    external: true
+    name: cliproxyapi-network
