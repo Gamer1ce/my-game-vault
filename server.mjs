@@ -21,6 +21,7 @@ import { activityDate, cumulativeDelta, groupActivityRows, groupRecentActivity, 
 import { isLoopbackHost, isSameOriginWrite, parseCookies, safeEqual } from "./src/security.mjs";
 import { listHighlights, resolveHighlightFile, isSafeHighlightPath, resolveHighlightsDirectory, supportedHighlightFormats, supportedHighlightImageFormats, supportedHighlightVideoFormats } from "./src/highlights.mjs";
 import { createHighlightPosterService } from "./src/highlight-posters.mjs";
+import { resolveStreamAsset, streamUrlFor } from "./src/highlight-streams.mjs";
 import { classifyHighlights, createHighlightCategoryStore, mediaCategoryKey } from "./src/highlight-categories.mjs";
 import { apiCacheControl, staticCacheControl } from "./src/http-cache.mjs";
 import { createGameSyncTargets } from "./src/game-sync-plan.mjs";
@@ -498,6 +499,21 @@ function setPublicMediaCors(res) {
     "Cross-Origin-Resource-Policy": "cross-origin"
   });
 }
+app.options("/media/highlight-streams/:id/:asset", (_req, res) => {
+  setPublicMediaCors(res);
+  res.status(204).end();
+});
+app.get("/media/highlight-streams/:id/:asset", (req, res) => {
+  try {
+    const { directory } = resolveHighlightsDirectory(dataDir);
+    const { file, type } = resolveStreamAsset(directory, req.params.id, req.params.asset);
+    setPublicMediaCors(res);
+    res.set({ "Content-Type": type, "Cache-Control": "public, max-age=31536000, immutable" });
+    return res.sendFile(file, { dotfiles: "allow", cacheControl: false }, (error) => {
+      if (error && !res.headersSent && error.code !== "ECONNABORTED") res.status(404).end();
+    });
+  } catch { return res.status(404).end(); }
+});
 app.options("/media/highlights/:filename", (_req, res) => {
   setPublicMediaCors(res);
   res.status(204).end();
@@ -1222,7 +1238,9 @@ async function currentHighlightLibrary() {
   const storage = resolveHighlightsDirectory(dataDir);
   let available = false;
   try { available = statSync(storage.directory).isDirectory(); } catch { available = false; }
-  const localHighlights = available ? listHighlights(storage.directory, 5000) : [];
+  const localHighlights = available ? listHighlights(storage.directory, 5000).map(item => ({
+    ...item, streamUrl: streamUrlFor(storage.directory, item)
+  })) : [];
   let manifest = { files: {} };
   try { manifest = remoteMedia.manifest(); } catch (error) { console.error(error.message); }
   let baiduHighlights = [];

@@ -25,9 +25,9 @@ test("high bitrate source is reported honestly, recovery grows and respects the 
 
 test("browser preload suspension is distinct from a network timeout", () => {
   const state = { ahead: 3, target: 12, now: 13_000, lastProgressAt: 0, networkState: 1 };
-  assert.equal(health.recoveryState(state), "suspended");
-  assert.equal(health.recoveryState({ ...state, networkState: 2 }), "loading");
-  assert.equal(health.recoveryState({ ...state, networkState: 2, now: 31_000 }), "stalled");
+  assert.equal(health.recoveryState(state), "capped");
+  assert.equal(health.recoveryState({ ...state, networkState: 2 }), "capped");
+  assert.equal(health.recoveryState({ ...state, ahead: 0, networkState: 2, now: 31_000 }), "stalled");
   assert.equal(health.recoveryState({ ...state, ahead: 12 }), "ready");
 });
 
@@ -42,7 +42,7 @@ function player() {
   }
   const video = new Element();
   Object.assign(video, {
-    currentTime: 0, duration: 300, end: 5, readyState: 4, networkState: 2, isConnected: true,
+    currentTime: 0, duration: 300, end: 5, readyState: 4, networkState: 2, isConnected: true, dataset: {},
     paused: true, seeking: false, ended: false, playCalls: 0, loadCalls: 0,
     buffered: { length: 1, start: () => 0, end: () => video.end },
     load() { this.loadCalls++; },
@@ -53,12 +53,14 @@ function player() {
   const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
   const code = app.slice(app.indexOf("let highlightPlaybackRequest = 0;"), app.indexOf("async function openHighlight(index)"));
   const context = vm.createContext({
-    ...health, playbackStartupState, STARTUP_WAIT_MS,
+    ...health, playbackStartupState, STARTUP_WAIT_MS, segmentedUrl: () => null,
     document: { createElement: () => new Element() }, performance: { now: () => now },
     setInterval: callback => { tick = callback; return 1; }, clearInterval() {},
     video, viewer
   });
   vm.runInContext(code + '\nmountBufferedVideo(viewer, video, {size: 3413552131}, {source: "local"}, "https://example.org/video.mp4", 0);', context);
+  // Exercise the controlled buffer path; native-only playback has its own test.
+  video.dataset.managedStream = "true";
   const panel = viewer.children[2];
   return {
     video, panel,
@@ -87,21 +89,31 @@ test("actual mounted player holds an underrun, resumes only after valid buffer, 
   assert.match(p.status.textContent, /实际可播放缓存/);
 });
 
-test("Safari preload suspension stays manually recoverable without a play/pause loop", () => {
+test("a four-second mobile buffer cap resumes instead of waiting forever for twelve seconds", () => {
   const p = player();
   p.button.emit("click");
   p.video.currentTime = 5;
   p.video.emit("waiting");
-  p.video.end = 7;
+  p.video.end = 9;
   p.video.emit("progress");
-  p.video.networkState = 1;
-  p.advance(13_000);
-  assert.match(p.status.textContent, /暂停了后台加载/);
+  p.video.networkState = 2; // Some mobile engines still report LOADING at the cap.
+  p.advance(2000);
   assert.equal(p.video.playCalls, 1);
-  assert.equal(p.button.disabled, false);
-  p.button.emit("click");
+  p.advance(1500);
   assert.equal(p.video.playCalls, 2);
   assert.equal(p.video.loadCalls, 1);
+});
+
+test("ordinary MP4 native playback is never paused by our buffer target", () => {
+  const p = player();
+  delete p.video.dataset.managedStream;
+  p.button.emit("click");
+  p.video.currentTime = 5;
+  p.video.emit("waiting");
+  assert.equal(p.video.paused, false);
+  p.video.end = 9;
+  p.advance(15_000);
+  assert.equal(p.video.playCalls, 1);
 });
 
 test("canceling recovery cannot trigger automatic resume later", () => {

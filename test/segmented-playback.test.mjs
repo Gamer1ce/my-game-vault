@@ -1,0 +1,55 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { attachSegmentedPlayback, SEGMENT_BUFFER_CONFIG } from "../public/segmented-playback.js";
+
+test("controlled segments attach with bounded buffers and cleanly release the media source", async () => {
+  let instance;
+  class Hls {
+    static Events = { ERROR: "error" };
+    static isSupported() { return true; }
+    constructor(config) { this.config = config; instance = this; }
+    on(_event, handler) { this.handler = handler; }
+    loadSource(url) { this.url = url; }
+    attachMedia(video) { this.video = video; }
+    destroy() { this.destroyed = true; }
+  }
+  const video = { dataset: {} };
+  let errors = 0;
+  const controller = await attachSegmentedPlayback(video, "https://media.example/index.m3u8", {
+    loadLibrary: async () => ({ default: Hls }), onFatal: () => { errors++; }
+  });
+  assert.deepEqual(instance.config, SEGMENT_BUFFER_CONFIG);
+  assert.equal(video.disableRemotePlayback, true);
+  assert.equal(video.dataset.managedStream, "true");
+  assert.equal(instance.video, video);
+  instance.handler("error", { fatal: false });
+  assert.equal(errors, 0);
+  instance.handler("error", { fatal: true });
+  assert.equal(errors, 1);
+  controller.destroy();
+  assert.equal(instance.destroyed, true);
+  assert.equal(video.dataset.managedStream, undefined);
+  instance.handler("error", { fatal: true });
+  assert.equal(errors, 1);
+});
+
+test("older native HLS keeps browser playback without the managed pause policy", async () => {
+  const video = { dataset: {}, canPlayType: () => "maybe", load() { this.loaded = true; } };
+  const controller = await attachSegmentedPlayback(video, "https://media.example/index.m3u8", {
+    loadLibrary: async () => ({ default: { isSupported: () => false } })
+  });
+  assert.equal(controller.mode, "native");
+  assert.equal(video.dataset.managedStream, undefined);
+  assert.equal(video.disableRemotePlayback, false);
+  assert.equal(video.loaded, true);
+});
+
+test("closing a player during library download cannot attach a late stream", async () => {
+  let supportedChecked = false;
+  const controller = await attachSegmentedPlayback({}, "https://media.example/index.m3u8", {
+    active: () => false,
+    loadLibrary: async () => ({ default: { isSupported() { supportedChecked = true; } } })
+  });
+  assert.equal(controller, null);
+  assert.equal(supportedChecked, false);
+});

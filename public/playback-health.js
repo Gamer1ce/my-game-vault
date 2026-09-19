@@ -23,6 +23,9 @@ export function recoveryBufferTarget({ duration, currentTime = 0, stalls = 1 } =
 
 export function recoveryState({ ahead, target, now, lastProgressAt, networkState }) {
   if (ahead >= target - 0.1) return "ready";
+  // Mobile decoders can cap their paused buffer at a few seconds even while
+  // networkState still says LOADING. Never wait indefinitely for 12 seconds.
+  if (ahead >= 2 && now - lastProgressAt >= 3000) return "capped";
   // Safari may stop loading while paused. Do not loop play/pause or promise
   // an unreachable buffer target: keep the cached data and offer manual resume.
   if (now - lastProgressAt >= 12_000 && networkState !== 2) return "suspended";

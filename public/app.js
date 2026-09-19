@@ -1,4 +1,5 @@
-import { playableBuffer, averageMediaBitrate, recoveryBufferTarget, recoveryState, droppedFrameRatio } from "./playback-health.js?v=20260919-1";
+import { playableBuffer, averageMediaBitrate, recoveryBufferTarget, recoveryState, droppedFrameRatio } from "./playback-health.js?v=20260920-1";
+import { attachSegmentedPlayback, segmentedUrl } from "./segmented-playback.js?v=20260920-1";
 import {
   localPlaybackCandidates,
   playbackCandidates,
@@ -622,10 +623,13 @@ async function loadHighlights({ preserveView = false } = {}) {
 
 let highlightPlaybackRequest = 0;
 let highlightBufferTimer = null;
+let highlightStreamController = null;
 
 function stopHighlightBufferTimer() {
   if (highlightBufferTimer) clearInterval(highlightBufferTimer);
   highlightBufferTimer = null;
+  highlightStreamController?.destroy();
+  highlightStreamController = null;
 }
 
 function bufferedEndAtCurrentTime(video) { return video.currentTime + playableBuffer(video); }
@@ -691,6 +695,46 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   let activePlaybackUrl = playbackUrl;
   const fallbackCandidates = Array.isArray(playback.fallbackCandidates) ? [...playback.fallbackCandidates] : [];
   let pendingResume = null;
+  let sourceGeneration = 0;
+
+  const setSource = async (url) => {
+    const generation = ++sourceGeneration;
+    highlightStreamController?.destroy();
+    highlightStreamController = null;
+    delete video.dataset.managedStream;
+    const active = () => request === highlightPlaybackRequest && video.isConnected && generation === sourceGeneration;
+    const stream = segmentedUrl(url, item.streamUrl);
+    const useOriginal = () => {
+      if (!active()) return;
+      sourceGeneration += 1;
+      const resumeAt = video.currentTime || pendingResume?.resumeAt || 0;
+      const resumePlaying = sample.playing || sample.recovering || sample.requestedAt !== null;
+      highlightStreamController?.destroy();
+      highlightStreamController = null;
+      sample.recovering = false;
+      sample.playing = false;
+      sample.hasPlayed = false;
+      sample.requestedAt = null;
+      video.disableRemotePlayback = false;
+      pendingResume = { resumeAt, resumePlaying };
+      video.src = url;
+      video.load();
+      if (resumePlaying) startPlayback();
+    };
+    if (stream) {
+      try {
+        const controller = await attachSegmentedPlayback(video, stream, { active, onFatal: useOriginal });
+        if (!active()) { controller?.destroy(); return; }
+        highlightStreamController = controller;
+        return;
+      } catch {
+        // Same-node original remains the compatibility fallback.
+        delete video.dataset.managedStream;
+        video.disableRemotePlayback = false;
+      }
+    }
+    if (active()) { video.src = url; video.load(); }
+  };
 
   const updateRouteLabel = (candidate) => {
     if (candidate?.label) source.textContent = routeSourceText(candidateLabel(candidate));
@@ -732,9 +776,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     pendingResume = { resumeAt, resumePlaying };
     panel.classList.remove("is-error");
     status.textContent = `${message}，正在切换到 ${fallback.label || "备用线路"}…`;
-    video.src = fallback.url;
-    video.load();
-    if (resumePlaying) startPlayback();
+    setSource(fallback.url).then(() => { if (resumePlaying && request === highlightPlaybackRequest) startPlayback(); });
     return true;
   };
 
@@ -782,7 +824,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
       bufferedPlay.textContent = "使用现有缓存继续";
       playNow.hidden = false;
       playNow.textContent = "暂停等待";
-      if (recovery === "ready") startPlayback();
+      if (recovery === "ready" || recovery === "capped") startPlayback();
       return;
     }
     if (sample.terminalError || !sample.playing || sample.waiting) {
@@ -836,6 +878,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     }
     const bitrate = averageMediaBitrate(item.size, video.duration);
     if (bitrate) source.textContent = routeSourceText(candidateLabel(activeCandidate) || playback.routeLabel) + ` · 原片平均 ${(bitrate / 1e6).toFixed(1)} Mbps`;
+    if (video.dataset.managedStream === "true") source.textContent += " · 原画分段缓存";
     update();
   });
   video.addEventListener("progress", update);
@@ -845,7 +888,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   video.addEventListener("waiting", () => {
     sample.waiting = true;
     if (request !== highlightPlaybackRequest || !video.isConnected) return;
-    if (sample.hasPlayed && !sample.recovering && playableBuffer(video) < 1 && !video.seeking && performance.now() - sample.seekAt > 1500) {
+    if (video.dataset.managedStream === "true" && sample.hasPlayed && !sample.recovering && playableBuffer(video) < 1 && !video.seeking && performance.now() - sample.seekAt > 1500) {
       sample.stalls += 1;
       sample.recoveryTarget = recoveryBufferTarget({ duration: video.duration, currentTime: video.currentTime, stalls: sample.stalls });
       sample.recovering = true;
@@ -888,9 +931,8 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     video.pause();
     update();
   });
-  video.src = activePlaybackUrl;
   highlightBufferTimer = setInterval(update, 750);
-  video.load();
+  setSource(activePlaybackUrl);
   update();
 }
 
