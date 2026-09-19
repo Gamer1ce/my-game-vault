@@ -1,16 +1,9 @@
-import {
-  bufferProgressTimedOut,
-  estimatedBufferWait,
-  planPlaybackReadAheadRange,
-  recommendedBufferTarget,
-  recommendedPlaybackReadAhead,
-  resumeBufferedPlayback
-} from "./playback-buffer.js?v=20260904-1";
+import { playableBuffer, averageMediaBitrate, recoveryBufferTarget, recoveryState, droppedFrameRatio } from "./playback-health.js?v=20260919-1";
 import {
   localPlaybackCandidates,
   playbackCandidates,
   rankPlaybackCandidates
-} from "./playback-route.js?v=20260905-2";
+} from "./playback-route.js?v=20260919-1";
 import {
   arrangeHighlightsForPlayback,
   canUseDirectLocalPlayback,
@@ -629,21 +622,13 @@ async function loadHighlights({ preserveView = false } = {}) {
 
 let highlightPlaybackRequest = 0;
 let highlightBufferTimer = null;
-let highlightReadAheadAbort = null;
 
 function stopHighlightBufferTimer() {
   if (highlightBufferTimer) clearInterval(highlightBufferTimer);
   highlightBufferTimer = null;
-  if (highlightReadAheadAbort) highlightReadAheadAbort.abort();
-  highlightReadAheadAbort = null;
 }
 
-function bufferedEndAtCurrentTime(video) {
-  for (let index = 0; index < video.buffered.length; index += 1) {
-    if (video.buffered.start(index) <= video.currentTime + 0.25 && video.buffered.end(index) >= video.currentTime) return video.buffered.end(index);
-  }
-  return 0;
-}
+function bufferedEndAtCurrentTime(video) { return video.currentTime + playableBuffer(video); }
 
 function formatBufferClock(seconds) {
   const value = Math.max(0, Math.round(Number(seconds || 0)));
@@ -659,30 +644,6 @@ function formatPlaybackSpeed(bytesPerSecond) {
   return `${mbps >= 10 ? mbps.toFixed(0) : mbps.toFixed(1)} Mbps`;
 }
 
-async function prefetchPlaybackRange(url, range, signal) {
-  const target = new URL(url, window.location.origin);
-  const response = await fetch(target.href, {
-    headers: { Range: `bytes=${range.startByte}-${range.endByte}` },
-    credentials: target.origin === window.location.origin ? "same-origin" : "omit",
-    cache: "default",
-    priority: "low",
-    signal
-  });
-  if (response.status !== 206) {
-    await response.body?.cancel().catch(() => {});
-    return false;
-  }
-  if (!response.body?.getReader) {
-    await response.arrayBuffer();
-    return true;
-  }
-  const reader = response.body.getReader();
-  while (true) {
-    const { done } = await reader.read();
-    if (done) return true;
-  }
-}
-
 function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request) {
   const source = document.createElement("span");
   source.className = `highlight-playback-source ${playback.source === "remote" ? "is-remote" : "is-local"}`;
@@ -693,7 +654,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
       : label || "本机线路";
   const candidateLabel = (candidate) => {
     const speed = formatPlaybackSpeed(candidate?.measuredBytesPerSecond);
-    return [candidate?.label, speed].filter(Boolean).join(" · ");
+    return [candidate?.label, speed ? `短样本 ${speed}（非持续网速）` : ""].filter(Boolean).join(" · ");
   };
   let activeCandidate = playback.selectedCandidate || null;
   source.textContent = routeSourceText(candidateLabel(activeCandidate) || playback.routeLabel);
@@ -707,6 +668,14 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   const playNow = panel.querySelector(".highlight-play-now");
   const routeNext = panel.querySelector(".highlight-route-next");
   const sample = {
+    hasPlayed: false,
+    recovering: false,
+    recoveryTarget: 12,
+    stalls: 0,
+    seekAt: -Infinity,
+    quality: null,
+    qualityAt: performance.now(),
+    droppedRatio: 0,
     requestedAt: null,
     playError: null,
     terminalError: null,
@@ -721,46 +690,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   };
   let activePlaybackUrl = playbackUrl;
   const fallbackCandidates = Array.isArray(playback.fallbackCandidates) ? [...playback.fallbackCandidates] : [];
-  const readAhead = { controller: null, prefetchedThrough: 0, lastFailedAt: 0 };
   let pendingResume = null;
-
-  const abortReadAhead = () => {
-    const controller = readAhead.controller;
-    if (!controller) return;
-    controller.abort();
-    readAhead.controller = null;
-    if (highlightReadAheadAbort === controller) highlightReadAheadAbort = null;
-  };
-
-  const maybeStartReadAhead = ({ duration, currentTime, bufferedEnd, target, now }) => {
-    if (!sample.playing || sample.waiting || readAhead.controller || navigator.connection?.saveData) return;
-    if (bufferedEnd - currentTime < 4) return;
-    // preload="auto" is only a hint. Wait until the native loader becomes idle so
-    // the low-priority request never competes with an active media range request.
-    if (video.networkState !== 1 || now - readAhead.lastFailedAt < 10_000) return;
-    const plan = planPlaybackReadAheadRange({
-      size: item.size,
-      duration,
-      currentTime,
-      bufferedEnd,
-      prefetchedThrough: readAhead.prefetchedThrough,
-      readAheadSeconds: target
-    });
-    if (!plan) return;
-    const controller = new AbortController();
-    readAhead.controller = controller;
-    highlightReadAheadAbort = controller;
-    prefetchPlaybackRange(activePlaybackUrl, plan, controller.signal).then((completed) => {
-      if (completed) readAhead.prefetchedThrough = Math.max(readAhead.prefetchedThrough, plan.throughTime);
-      else readAhead.lastFailedAt = performance.now();
-    }).catch((error) => {
-      if (error?.name !== "AbortError") readAhead.lastFailedAt = performance.now();
-    }).finally(() => {
-      if (readAhead.controller === controller) readAhead.controller = null;
-      if (highlightReadAheadAbort === controller) highlightReadAheadAbort = null;
-      if (request === highlightPlaybackRequest && video.isConnected) update();
-    });
-  };
 
   const updateRouteLabel = (candidate) => {
     if (candidate?.label) source.textContent = routeSourceText(candidateLabel(candidate));
@@ -770,7 +700,6 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     while (fallbackCandidates.length) {
       const candidate = fallbackCandidates.shift();
       if (candidate?.url && candidate.url !== activePlaybackUrl) {
-        abortReadAhead();
         activePlaybackUrl = candidate.url;
         activeCandidate = candidate;
         updateRouteLabel(candidate);
@@ -785,8 +714,9 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
         sample.stalled = false;
         sample.lastBufferedEnd = 0;
         sample.lastProgressAt = performance.now();
-        readAhead.prefetchedThrough = 0;
-        readAhead.lastFailedAt = 0;
+        sample.hasPlayed = false;
+        sample.recovering = false;
+        sample.stalls = 0;
         routeNext.hidden = fallbackCandidates.length === 0;
         return candidate;
       }
@@ -810,6 +740,8 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
 
   const startPlayback = async () => {
     const attemptUrl = activePlaybackUrl;
+    sample.recovering = false;
+    video.preload = "auto";
     const retry = sample.terminalError || (sample.requestedAt !== null && performance.now() - sample.requestedAt >= STARTUP_WAIT_MS);
     sample.playError = null;
     sample.terminalError = null;
@@ -818,7 +750,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     sample.requestedAt = performance.now();
     sample.waiting = true;
     // Call play directly in the click handler, before any asynchronous work.
-    const promise = resumeBufferedPlayback(video);
+    const promise = video.play();
     update();
     try { await promise; } catch (error) {
       if (request !== highlightPlaybackRequest || activePlaybackUrl !== attemptUrl || error?.name === "AbortError") return;
@@ -835,9 +767,28 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   const update = () => {
     if (request !== highlightPlaybackRequest || !video.isConnected) return;
     const now = performance.now();
+    const ahead = playableBuffer(video);
+    if (sample.recovering) {
+      if (ahead > sample.lastBufferedEnd + 0.05) sample.lastProgressAt = now;
+      sample.lastBufferedEnd = ahead;
+      const recovery = recoveryState({ ahead, target: sample.recoveryTarget, now, lastProgressAt: sample.lastProgressAt, networkState: video.networkState });
+      bar.style.width = `${Math.min(100, ahead / Math.max(0.1, sample.recoveryTarget) * 100).toFixed(2)}%`;
+      status.textContent = recovery === "suspended"
+        ? `浏览器暂停了后台加载，已缓存 ${formatBufferClock(ahead)}；可点击继续播放。`
+        : recovery === "stalled"
+          ? `暂未收到新数据，已缓存 ${formatBufferClock(ahead)}；可继续等待或换线。`
+          : `正在积累有效缓存 ${formatBufferClock(ahead)} / ${formatBufferClock(sample.recoveryTarget)}，达到目标后自动继续（原画不变）。`;
+      bufferedPlay.disabled = ahead < 0.1;
+      bufferedPlay.textContent = "使用现有缓存继续";
+      playNow.hidden = false;
+      playNow.textContent = "暂停等待";
+      if (recovery === "ready") startPlayback();
+      return;
+    }
     if (sample.terminalError || !sample.playing || sample.waiting) {
       const startup = playbackStartupState({ readyState: video.readyState, requestedAt: sample.requestedAt, now, error: sample.terminalError || sample.playError });
-      status.textContent = startup.message;
+      status.textContent = `${startup.message} 已缓存 ${formatBufferClock(ahead)}。`;
+      bar.style.width = `${Math.min(100, ahead / 12 * 100).toFixed(2)}%`;
       bufferedPlay.disabled = startup.disabled;
       bufferedPlay.textContent = startup.label;
       playNow.hidden = true;
@@ -852,51 +803,20 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     }
     const currentTime = Math.max(0, Number(video.currentTime || 0));
     const bufferedEnd = Math.min(duration, bufferedEndAtCurrentTime(video));
-    if (bufferedEnd > sample.lastBufferedEnd + 0.05) {
-      sample.lastBufferedEnd = bufferedEnd;
-      sample.lastProgressAt = now;
-      sample.stalled = false;
-    }
-    const elapsed = Math.max(0.001, (now - sample.startedAt) / 1000);
-    if (elapsed >= 2 && bufferedEnd > sample.initialEnd) sample.rate = (bufferedEnd - sample.initialEnd) / elapsed;
-    const remaining = Math.max(0, duration - currentTime);
     const bufferAhead = Math.max(0, bufferedEnd - currentTime);
-    if (readAhead.controller && (video.networkState === 2 || bufferAhead < 4)) abortReadAhead();
-    const startupTarget = recommendedBufferTarget(remaining, sample.rate);
-    const playbackTarget = recommendedPlaybackReadAhead(duration, currentTime, sample.rate);
-    const ready = remaining <= 0.5 || bufferAhead + 0.5 >= startupTarget;
-    const wait = estimatedBufferWait(startupTarget, bufferAhead, sample.rate);
-    if (bufferProgressTimedOut({ now, lastProgressAt: sample.lastProgressAt, playing: sample.playing, ready })) sample.stalled = true;
-    const activeTarget = sample.playing ? playbackTarget : startupTarget;
-    const prefetchedAhead = Math.max(0, readAhead.prefetchedThrough - currentTime);
-    const effectiveAhead = Math.max(bufferAhead, prefetchedAhead);
-    bar.style.width = `${Math.min(100, activeTarget > 0 ? (effectiveAhead / activeTarget) * 100 : 100).toFixed(2)}%`;
-    panel.style.setProperty("--buffer-target", "100%");
-
-    if (sample.playing) {
-      status.textContent = sample.waiting
-        ? `当前缓存不足，已保留 ${formatBufferClock(bufferAhead)}，正在继续读取原画…`
-        : `前方已缓存 ${formatBufferClock(bufferAhead)}，播放时持续预读约 ${formatBufferClock(playbackTarget)}。`;
-      bufferedPlay.disabled = true;
-      bufferedPlay.textContent = "正在播放";
-      playNow.hidden = true;
-    } else if (ready) {
-      status.textContent = `前方已缓存 ${formatBufferClock(bufferAhead)}，可以开始流畅播放。`;
-      bufferedPlay.disabled = false;
-      bufferedPlay.textContent = "开始流畅播放";
-      playNow.hidden = true;
-    } else if (sample.stalled) {
-      status.textContent = `浏览器暂停了后台预缓存；已保留 ${formatBufferClock(bufferAhead)}，可以沿用现有缓存播放。`;
-      bufferedPlay.disabled = false;
-      bufferedPlay.textContent = "使用现有缓存播放";
-      playNow.hidden = true;
-    } else {
-      const estimate = wait === null ? "正在测量线路速度" : `预计还需约 ${formatBufferClock(wait)}`;
-      status.textContent = `前方已缓存 ${formatBufferClock(bufferAhead)} / 建议 ${formatBufferClock(startupTarget)} · ${estimate}`;
-      bufferedPlay.disabled = true;
-      bufferedPlay.textContent = "正在预缓存";
+    bar.style.width = `${Math.min(100, bufferAhead / 12 * 100).toFixed(2)}%`;
+    if (now - sample.qualityAt >= 5000 && video.getVideoPlaybackQuality) {
+      const quality = video.getVideoPlaybackQuality();
+      sample.droppedRatio = droppedFrameRatio(sample.quality, quality);
+      sample.quality = { totalVideoFrames: quality.totalVideoFrames, droppedVideoFrames: quality.droppedVideoFrames };
+      sample.qualityAt = now;
     }
-    maybeStartReadAhead({ duration, currentTime, bufferedEnd, target: playbackTarget, now });
+    const decodeWarning = bufferAhead >= 3 && sample.droppedRatio > 0.08
+      ? " · 缓存充足但掉帧较多，可能是设备解码或省电模式限制" : "";
+    status.textContent = `实际可播放缓存 ${formatBufferClock(bufferAhead)}${decodeWarning}`;
+    bufferedPlay.disabled = true;
+    bufferedPlay.textContent = "正在播放";
+    playNow.hidden = true;
   };
 
   bufferedPlay.addEventListener("click", startPlayback);
@@ -909,32 +829,49 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     sample.initialEnd = bufferedEndAtCurrentTime(video);
     sample.lastBufferedEnd = sample.initialEnd;
     sample.lastProgressAt = performance.now();
-    readAhead.prefetchedThrough = 0;
     if (pendingResume) {
       const resume = pendingResume;
       pendingResume = null;
       try { video.currentTime = Math.min(resume.resumeAt, Math.max(0, Number(video.duration) - 0.1)); } catch {}
     }
+    const bitrate = averageMediaBitrate(item.size, video.duration);
+    if (bitrate) source.textContent = routeSourceText(candidateLabel(activeCandidate) || playback.routeLabel) + ` · 原片平均 ${(bitrate / 1e6).toFixed(1)} Mbps`;
     update();
   });
   video.addEventListener("progress", update);
   video.addEventListener("canplay", update);
   video.addEventListener("stalled", update);
   video.addEventListener("suspend", update);
-  video.addEventListener("waiting", () => { abortReadAhead(); sample.waiting = true; sample.requestedAt ??= performance.now(); update(); });
-  video.addEventListener("play", () => { sample.requestedAt ??= performance.now(); sample.waiting = true; update(); });
-  video.addEventListener("playing", () => { sample.playing = true; sample.waiting = false; sample.requestedAt = null; sample.playError = null; update(); });
-  video.addEventListener("pause", () => { if (!video.ended) { abortReadAhead(); sample.playing = false; sample.waiting = false; sample.requestedAt = null; update(); } });
-  video.addEventListener("ended", () => { abortReadAhead(); sample.playing = false; sample.waiting = false; sample.requestedAt = null; update(); });
+  video.addEventListener("waiting", () => {
+    sample.waiting = true;
+    if (request !== highlightPlaybackRequest || !video.isConnected) return;
+    if (sample.hasPlayed && !sample.recovering && playableBuffer(video) < 1 && !video.seeking && performance.now() - sample.seekAt > 1500) {
+      sample.stalls += 1;
+      sample.recoveryTarget = recoveryBufferTarget({ duration: video.duration, currentTime: video.currentTime, stalls: sample.stalls });
+      sample.recovering = true;
+      sample.lastBufferedEnd = playableBuffer(video);
+      sample.lastProgressAt = performance.now();
+      sample.requestedAt = null;
+      video.preload = "auto";
+      video.pause();
+    } else if (!sample.recovering) sample.requestedAt ??= performance.now();
+    update();
+  });
+  video.addEventListener("play", () => { sample.recovering = false; sample.requestedAt ??= performance.now(); sample.waiting = true; update(); });
+  video.addEventListener("playing", () => { sample.hasPlayed = true; sample.playing = true; sample.waiting = false; sample.requestedAt = null; sample.playError = null; update(); });
+  video.addEventListener("pause", () => { if (!video.ended && !sample.recovering) { sample.playing = false; sample.waiting = false; sample.requestedAt = null; update(); } });
+  video.addEventListener("ended", () => { sample.recovering = false; sample.playing = false; sample.waiting = false; sample.requestedAt = null; update(); });
   video.addEventListener("seeking", () => {
-    abortReadAhead();
-    readAhead.prefetchedThrough = 0;
-    sample.lastBufferedEnd = bufferedEndAtCurrentTime(video);
+    sample.seekAt = performance.now();
+    sample.lastBufferedEnd = playableBuffer(video);
+    sample.recoveryTarget = recoveryBufferTarget({ duration: video.duration, currentTime: video.currentTime, stalls: sample.stalls });
     sample.lastProgressAt = performance.now();
     sample.stalled = false;
     update();
   });
   video.addEventListener("error", () => {
+    if (request !== highlightPlaybackRequest || !video.isConnected) return;
+    sample.recovering = false;
     if (switchToFallback("当前节点连接中断")) return;
     panel.classList.add("is-error");
     sample.terminalError = video.error?.code === 3 || video.error?.code === 4
@@ -946,7 +883,11 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   stopHighlightBufferTimer();
   panel.querySelector(".highlight-buffer-copy strong").textContent = "原画播放缓冲";
   panel.style.setProperty("--buffer-target", "100%");
-  playNow.addEventListener("click", startPlayback);
+  playNow.addEventListener("click", () => {
+    sample.recovering = false; sample.playing = false; sample.waiting = false; sample.requestedAt = null;
+    video.pause();
+    update();
+  });
   video.src = activePlaybackUrl;
   highlightBufferTimer = setInterval(update, 750);
   video.load();
@@ -993,7 +934,7 @@ async function openHighlight(index) {
       url: safePlaybackUrl(candidate.url)
     })).filter((candidate) => candidate.url);
     if (candidates.length > 1) {
-      viewer.innerHTML = `<div class="highlight-loading"><strong>正在选择更快的媒体节点</strong><span>同时检测 IPv6 直连、Azure 镜像与兼容线路，读取 512 KB 样本判断持续速度…</span></div>`;
+      viewer.innerHTML = `<div class="highlight-loading"><strong>正在选择更快的媒体节点</strong><span>检查直连、镜像和兼容线路的 Range 可用性；短样本仅供选路，不代表持续播放速度。</span></div>`;
     }
     const rankedCandidates = await rankPlaybackCandidates(candidates, { fileSize: item.size });
     if (request !== highlightPlaybackRequest || !$("#highlightDialog").open) return;
@@ -1003,7 +944,7 @@ async function openHighlight(index) {
     const video = document.createElement("video");
     video.controls = true;
     video.autoplay = false;
-    video.preload = "metadata";
+    video.preload = "auto";
     video.playsInline = true;
     const fallbackCandidates = rankedCandidates.slice(1);
     mountBufferedVideo(viewer, video, item, {

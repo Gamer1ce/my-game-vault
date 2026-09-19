@@ -10,7 +10,7 @@ import {
   selectPlaybackCandidate
 } from "../public/playback-route.js";
 
-test("线路测速使用持续速度样本", () => {
+test("线路检测使用有限的连通性样本，不声称测量持续速度", () => {
   assert.equal(PLAYBACK_ROUTE_SAMPLE_BYTES, 512 * 1024);
   assert.equal(PLAYBACK_ROUTE_TAIL_SAMPLE_BYTES, 64 * 1024);
 });
@@ -101,6 +101,7 @@ test("测速同时验证文件尾部 Range，避免小样本成功而真实播�
     sampleBytes: 8,
     tailSampleBytes: 4,
     fetchImpl: async (_url, options) => {
+      assert.equal(options.cache, "no-store");
       const range = options.headers.Range;
       ranges.push(range);
       const [start, end] = range.slice(6).split("-").map(Number);
@@ -135,4 +136,15 @@ test("忽略不支持 Range 的假成功线路，备用顺序按实测速度排�
   });
   assert.equal(rejected.ok, false);
   assert.match(rejected.error, /Range HTTP 200/);
+});
+
+test("Range 响应头正确但正文被截断时不可作为成功测速", async () => {
+  const result = await measurePlaybackCandidate({ id: "direct", url: "https://example.org/video" }, {
+    sampleBytes: 8,
+    fetchImpl: async () => new Response(new Uint8Array(4), {
+      status: 206, headers: { "Content-Range": "bytes 0-7/100" }
+    })
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.error, /incomplete/);
 });

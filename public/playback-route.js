@@ -56,7 +56,7 @@ export async function measurePlaybackCandidate(candidate, {
   const readRange = async (startByte, endByte) => {
     const response = await fetchImpl(candidate.url, {
       headers: { Range: `bytes=${startByte}-${endByte}` },
-      cache: "default",
+      cache: "no-store",
       signal: controller.signal
     });
     if (response.status !== 206) throw new Error(`Range HTTP ${response.status}`);
@@ -79,7 +79,7 @@ export async function measurePlaybackCandidate(candidate, {
     } else {
       rangeBytes = (await response.arrayBuffer()).byteLength;
     }
-    if (!rangeBytes) throw new Error("empty response");
+    if (rangeBytes !== expected) throw new Error("incomplete Range response");
     return rangeBytes;
   };
 

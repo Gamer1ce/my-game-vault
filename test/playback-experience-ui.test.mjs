@@ -22,7 +22,7 @@ test("线路切换保留播放位置，慢缓存不再被误判为故障", () =>
   assert.match(script, /video\.currentTime = Math\.min\(resume\.resumeAt/);
   assert.doesNotMatch(script, /当前线路读取超时/);
   assert.doesNotMatch(script, /当前线路缓存停滞/);
-  assert.match(script, /video\.addEventListener\("error", \(\) => \{\s*if \(switchToFallback/);
+  assert.match(script, /video\.addEventListener\("error", \(\) => \{[^}]*if \(switchToFallback/);
 });
 
 test("连续状态提示不会被上一条过时器提前隐藏", () => {
