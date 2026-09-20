@@ -1,4 +1,5 @@
 import { playableBuffer, averageMediaBitrate, droppedFrameRatio } from "./playback-health.js?v=20260920-1";
+import { createPlaybackPriority, createBackgroundImagePause, isBackgroundRead } from "./playback-priority.js?v=20260920-1";
 import { attachSegmentedPlayback, segmentedUrl } from "./segmented-playback.js?v=20260920-2";
 import {
   localPlaybackCandidates,
@@ -31,7 +32,21 @@ const platformNames = { xbox: "Xbox", playstation: "PlayStation", nintendo: "Nin
 const escapeHtml = (value) => String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "'":"&#39;", '"':"&quot;" })[char]);
 const formatTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60).toLocaleString()}<span>小时 ${minutes % 60 ? `${minutes % 60} 分` : ""}</span>`;
 const formatPlainTime = (minutes) => minutes < 60 ? `${minutes} 分钟` : `${Math.floor(minutes / 60)} 小时${minutes % 60 ? ` ${minutes % 60} 分钟` : ""}`;
-const api = async (url, options = {}) => { const response = await fetch(url, { credentials:"same-origin", ...options }); if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "请求失败"); } return response.status === 204 ? null : response.json(); };
+const playbackPriority = createPlaybackPriority();
+const backgroundImages = createBackgroundImagePause(document.querySelectorAll("header.hero, main, footer"));
+function setVideoPriority(active) {
+  backgroundImages.setActive(active);
+  playbackPriority.setActive(active);
+  document.body.classList.toggle("video-priority", active);
+}
+const api = async (url, options = {}) => {
+  const read = async (signal) => {
+    const response = await fetch(url, { credentials: "same-origin", ...options, signal });
+    if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || "请求失败"); }
+    return response.status === 204 ? null : response.json();
+  };
+  return isBackgroundRead(url, options) ? playbackPriority.read(read, options.signal) : read(options.signal);
+};
 
 const heroSequenceTitle = $("#heroSequenceTitle");
 const heroSequenceTrigger = $("#heroSequenceTrigger");
@@ -225,6 +240,7 @@ function renderGames({ reset = true } = {}) {
 }
 
 function loadNextGameBatch() {
+  if (playbackPriority.defer("game-batch", loadNextGameBatch)) return;
   const games = filteredGames();
   const start = Math.min(state.visibleGames, games.length);
   const end = Math.min(start + GAME_BATCH_SIZE, games.length);
@@ -423,7 +439,7 @@ $("#siteLikeButton").addEventListener("click", async (event) => {
 
 const compactGuestbook = window.matchMedia("(max-width: 560px)");
 compactGuestbook.addEventListener?.("change", renderDanmaku);
-setInterval(() => { if (document.visibilityState === "visible") loadGuestbook().catch(() => {}); }, 30_000);
+setInterval(() => { if (document.visibilityState === "visible" && !playbackPriority.active) loadGuestbook().catch(() => {}); }, 30_000);
 
 $("#feedbackForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -934,6 +950,7 @@ async function openHighlight(index) {
   if (!item || (item.type !== "video" && !url)) return;
   const request = ++highlightPlaybackRequest;
   stopHighlightBufferTimer();
+  setVideoPriority(item.type === "video");
   $("#highlightDialogTitle").textContent = item.title || item.filename || "精彩时刻";
   const viewer = $("#highlightViewer");
   if (item.type !== "video") {
@@ -1118,7 +1135,7 @@ $("#highlightCollapse").addEventListener("click", () => {
   renderHighlights();
   requestAnimationFrame(() => $("#highlights").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
 });
-$("#highlightDialog").addEventListener("close", () => { highlightPlaybackRequest += 1; stopHighlightBufferTimer(); const video = $("#highlightViewer video"); if (video) video.pause(); $("#highlightViewer").replaceChildren(); });
+$("#highlightDialog").addEventListener("close", () => { highlightPlaybackRequest += 1; stopHighlightBufferTimer(); const video = $("#highlightViewer video"); if (video) { video.pause(); video.removeAttribute("src"); video.load(); } $("#highlightViewer").replaceChildren(); setVideoPriority(false); });
 $("#mediaPowerButton").addEventListener("click", async () => {
   const button = $("#mediaPowerButton");
   const nextMode = state.mediaPower.mode === "sleeping" ? "running" : "sleeping";
@@ -1160,6 +1177,7 @@ $("#activityDetails").addEventListener("error", (event) => handlePosterError(eve
 function handlePosterError(event) {
   const image = event.target.closest?.("img.poster-image");
   if (!image) return;
+  if (image.hasAttribute("data-playback-deferred")) return;
   let candidates = [];
   try { candidates = JSON.parse(decodeURIComponent(image.dataset.posters || "%5B%5D")); } catch { image.remove(); return; }
   const next = Number(image.dataset.posterIndex || 0) + 1;
@@ -1393,6 +1411,7 @@ function loadWhenNear(selector, loader, rootMargin = "900px 0px") {
   const element = $(selector);
   let attempts = 0;
   const run = () => {
+    if (playbackPriority.defer(`section:${selector}`, run)) return;
     attempts += 1;
     return loader().catch((error) => {
       toast(error.message);
@@ -1418,7 +1437,7 @@ const ensureMediaPower = onceAsync(async () => {
   if (!mediaPowerLoaded) await loadMediaPower();
   if (!mediaPowerRefreshTimer) {
     mediaPowerRefreshTimer = window.setInterval(() => {
-      if (document.visibilityState === "visible") refreshMediaPower().catch(() => {});
+      if (document.visibilityState === "visible" && !playbackPriority.active) refreshMediaPower().catch(() => {});
     }, 60_000);
   }
 });

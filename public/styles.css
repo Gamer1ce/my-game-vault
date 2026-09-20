@@ -1119,12 +1119,12 @@ dialog form, .activity-dialog-body { padding: 28px; }
 .highlight-dialog { width: min(1180px, calc(100% - 28px)); max-height: calc(100dvh - 24px); }
 /* Give high-bitrate / 60 fps playback the compositor budget. Restore the
    original glitch/danmaku effects automatically when the viewer closes. */
-body:has(#highlightDialog[open] video) *,
-body:has(#highlightDialog[open] video) *::before,
-body:has(#highlightDialog[open] video) *::after {
+body.video-priority *,
+body.video-priority *::before,
+body.video-priority *::after {
   animation-play-state: paused !important;
 }
-body:has(#highlightDialog[open] video) .signal-overlay { visibility: hidden; }
+body.video-priority .signal-overlay { visibility: hidden; }
 .highlight-dialog-body { padding: 14px; }
 .highlight-dialog .dialog-head { margin-bottom: 10px; position: sticky; top: 0; z-index: 2; background: var(--surface); }
 .highlight-dialog .dialog-head h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
