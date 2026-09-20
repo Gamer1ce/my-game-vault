@@ -1116,7 +1116,7 @@ dialog {
 }
 dialog::backdrop { background: #050608dc; }
 dialog form, .activity-dialog-body { padding: 28px; }
-.highlight-dialog { width: min(1180px, calc(100% - 28px)); }
+.highlight-dialog { width: min(1180px, calc(100% - 28px)); max-height: calc(100dvh - 24px); }
 /* Give high-bitrate / 60 fps playback the compositor budget. Restore the
    original glitch/danmaku effects automatically when the viewer closes. */
 body:has(#highlightDialog[open] video) *,
@@ -1125,11 +1125,12 @@ body:has(#highlightDialog[open] video) *::after {
   animation-play-state: paused !important;
 }
 body:has(#highlightDialog[open] video) .signal-overlay { visibility: hidden; }
-.highlight-dialog-body { padding: 22px; }
-.highlight-dialog .dialog-head { margin-bottom: 14px; }
+.highlight-dialog-body { padding: 14px; }
+.highlight-dialog .dialog-head { margin-bottom: 10px; position: sticky; top: 0; z-index: 2; background: var(--surface); }
 .highlight-dialog .dialog-head h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .highlight-viewer { overflow: hidden; position: relative; display: grid; place-items: center; min-height: 240px; background: #050608; }
 .highlight-viewer img, .highlight-viewer video { display: block; max-width: 100%; max-height: 72vh; object-fit: contain; }
+.highlight-viewer video { max-height: min(72vh, calc(100dvh - 180px)); }
 .highlight-loading { display: grid; gap: 7px; padding: 48px 20px; color: var(--cyan); text-align: center; }
 .highlight-loading strong { font-family: "Rajdhani", "Noto Sans SC", sans-serif; font-size: 20px; letter-spacing: .04em; }
 .highlight-loading span { color: var(--muted); font-size: 12px; }
