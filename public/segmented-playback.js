@@ -3,8 +3,9 @@ export const SEGMENT_BUFFER_CONFIG = Object.freeze({
   maxMaxBufferLength: 20,
   maxBufferSize: 192 * 1024 * 1024,
   backBufferLength: 4,
-  // fMP4 is already packaged: avoid a blob worker / broader script CSP.
-  enableWorker: false,
+  // Same-origin packaged worker: no blob worker or broader script CSP needed.
+  enableWorker: true,
+  workerPath: "/vendor/hls.worker-1.7.3.js",
   preferManagedMediaSource: true,
   lowLatencyMode: false
 });

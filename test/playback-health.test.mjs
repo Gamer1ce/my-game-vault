@@ -31,7 +31,7 @@ test("browser preload suspension is distinct from a network timeout", () => {
   assert.equal(health.recoveryState({ ...state, ahead: 12 }), "ready");
 });
 
-function player() {
+function player({ admin = false } = {}) {
   let now = 0;
   let tick;
   class Element {
@@ -39,6 +39,7 @@ function player() {
     querySelector(selector) { return this.nodes[selector] ||= new Element(); }
     addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
     emit(name) { for (const callback of this.listeners[name] || []) callback(); }
+    append(...children) { this.children = children; }
   }
   const video = new Element();
   Object.assign(video, {
@@ -53,7 +54,7 @@ function player() {
   const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
   const code = app.slice(app.indexOf("let highlightPlaybackRequest = 0;"), app.indexOf("async function openHighlight(index)"));
   const context = vm.createContext({
-    ...health, playbackStartupState, STARTUP_WAIT_MS, segmentedUrl: () => null,
+    ...health, playbackStartupState, STARTUP_WAIT_MS, segmentedUrl: () => null, state: { security: { canManage: admin } },
     document: { createElement: () => new Element() }, performance: { now: () => now },
     setInterval: callback => { tick = callback; return 1; }, clearInterval() {},
     video, viewer
@@ -61,7 +62,7 @@ function player() {
   vm.runInContext(code + '\nmountBufferedVideo(viewer, video, {size: 3413552131}, {source: "local"}, "https://example.org/video.mp4", 0);', context);
   // Exercise the controlled buffer path; native-only playback has its own test.
   video.dataset.managedStream = "true";
-  const panel = viewer.children[2];
+  const panel = viewer.children[1];
   return {
     video, panel,
     button: panel.querySelector(".highlight-buffer-play"),
@@ -70,62 +71,52 @@ function player() {
   };
 }
 
-test("actual mounted player holds an underrun, resumes only after valid buffer, and does not reload", async () => {
-  const p = player();
-  p.button.emit("click");
-  assert.equal(p.video.playCalls, 1);
-  p.video.currentTime = 5;
-  p.video.emit("waiting");
-  assert.equal(p.video.paused, true);
-  assert.match(p.status.textContent, /积累有效缓存/);
-  p.video.end = 9;
-  p.video.emit("progress");
-  assert.equal(p.video.playCalls, 1);
-  p.video.end = 17;
-  p.video.emit("progress");
-  assert.equal(p.video.playCalls, 2);
-  assert.equal(p.video.currentTime, 5);
-  assert.equal(p.video.loadCalls, 1);
-  assert.match(p.status.textContent, /实际可播放缓存/);
+test("managed and native playback do not turn brief underruns into forced pauses", () => {
+  for (const managed of [true, false]) {
+    const p = player();
+    if (!managed) delete p.video.dataset.managedStream;
+    p.button.emit("click");
+    p.video.currentTime = 5;
+    p.video.emit("waiting");
+    assert.equal(p.video.paused, false);
+    assert.match(p.panel.querySelector(".highlight-player-status").textContent, /缓冲/);
+    p.video.end = 9;
+    p.video.emit("progress");
+    p.advance(3500);
+    assert.equal(p.video.playCalls, 1);
+    assert.equal(p.video.loadCalls, 1);
+    p.video.emit("playing");
+    assert.equal(p.panel.querySelector(".highlight-player-status").textContent, "");
+  }
 });
 
-test("a four-second mobile buffer cap resumes instead of waiting forever for twelve seconds", () => {
+test("normal playback hides duplicated controls and technical details from guests", () => {
   const p = player();
+  const details = p.panel.querySelector(".highlight-player-details");
+  assert.equal(details.hidden, true);
+  assert.equal(details.open, false);
+  assert.equal(p.button.hidden, false);
   p.button.emit("click");
-  p.video.currentTime = 5;
-  p.video.emit("waiting");
-  p.video.end = 9;
-  p.video.emit("progress");
-  p.video.networkState = 2; // Some mobile engines still report LOADING at the cap.
-  p.advance(2000);
-  assert.equal(p.video.playCalls, 1);
-  p.advance(1500);
-  assert.equal(p.video.playCalls, 2);
-  assert.equal(p.video.loadCalls, 1);
+  assert.equal(p.button.hidden, true);
+  assert.equal(p.panel.querySelector(".highlight-player-status").textContent, "");
 });
 
-test("ordinary MP4 native playback is never paused by our buffer target", () => {
-  const p = player();
-  delete p.video.dataset.managedStream;
-  p.button.emit("click");
-  p.video.currentTime = 5;
-  p.video.emit("waiting");
-  assert.equal(p.video.paused, false);
-  p.video.end = 9;
-  p.advance(15_000);
-  assert.equal(p.video.playCalls, 1);
+test("administrator diagnostics stay in a separate, collapsed disclosure", () => {
+  const p = player({ admin: true });
+  assert.equal(p.panel.querySelector(".highlight-player-details").hidden, false);
+  assert.notEqual(p.panel.querySelector(".highlight-player-details").open, true);
 });
 
-test("canceling recovery cannot trigger automatic resume later", () => {
+test("manual pause remains paused as more video data arrives", () => {
   const p = player();
   p.button.emit("click");
-  p.video.currentTime = 5;
-  p.video.emit("waiting");
-  p.panel.querySelector(".highlight-play-now").emit("click");
+  p.video.pause();
   p.video.end = 25;
   p.video.emit("progress");
+  p.advance(15000);
   assert.equal(p.video.playCalls, 1);
   assert.equal(p.video.paused, true);
+  assert.equal(p.panel.querySelector(".highlight-player-status").textContent, "已暂停");
 });
 
 test("manual seeking does not get trapped by underrun recovery", () => {

@@ -30,7 +30,9 @@ respond 404
 
 ## 缓冲与设备限制
 
-支持 MediaSource / ManagedMediaSource 的设备使用本地托管的 hls.js，目标向前缓存约 16 秒、保留约 4 秒已播放内容，不下载整部视频到内存。内存预算是播放器配置目标，不是设备承诺；浏览器仍可能主动缩小缓存。仅受控分段播放会在耗尽后暂停积累缓存；若可播放缓存至少 2 秒且三秒没有增加，则沿用现有缓存继续，不会一直等待 12 秒。普通 MP4 和旧版原生 HLS 不会被网站主动暂停等待固定缓存量。
+支持 MediaSource / ManagedMediaSource 的设备使用本地托管的 hls.js，目标向前缓存约 16 秒、保留约 4 秒已播放内容，不下载整部视频到内存。内存预算是播放器配置目标，不是设备承诺；浏览器仍可能主动缩小缓存。断流恢复交给 HLS / 浏览器本身，网站不额外调用暂停、也不强制等到固定秒数后才恢复。分段解析由同源托管的 Web Worker 在后台线程处理，避免挤占页面主线程；不需要开放外部脚本或 blob Worker 权限。
+
+访客播放页只保留视频、简短的缓冲/错误提示和必要的播放/换线按钮，正常播放时隐藏重复播放按钮。线路测速、平均码率、缓存条和掉帧诊断不出现在访客界面；管理员可展开“播放诊断”查看。关闭诊断时不持续刷新它的内容。
 
 在支持的 iPhone 上，为启用 ManagedMediaSource，本模式禁用 Remote Playback / AirPlay；旧设备原生 HLS 模式不禁用。具体平台要求见 [WebKit 官方说明](https://webkit.org/blog/14735/webkit-features-in-safari-17-1/)。内置 hls.js 1.7.3 来自 npm 官方注册表，使用 Apache-2.0 许可证；源码项目为 [video-dev/hls.js](https://github.com/video-dev/hls.js)，许可证保留在 `public/vendor/hls.js-LICENSE.txt`。
 

@@ -52,5 +52,6 @@ test("segmented playback stays on the chosen node and rejects arbitrary manifest
   assert.equal(segmentedUrl("https://media.example/api/key", manifest), null);
   assert.equal(SEGMENT_BUFFER_CONFIG.maxBufferLength, 16);
   assert.equal(SEGMENT_BUFFER_CONFIG.backBufferLength, 4);
-  assert.equal(SEGMENT_BUFFER_CONFIG.enableWorker, false);
+  assert.equal(SEGMENT_BUFFER_CONFIG.enableWorker, true);
+  assert.equal(SEGMENT_BUFFER_CONFIG.workerPath, "/vendor/hls.worker-1.7.3.js");
 });

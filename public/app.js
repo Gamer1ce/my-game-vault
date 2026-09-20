@@ -1,5 +1,5 @@
-import { playableBuffer, averageMediaBitrate, recoveryBufferTarget, recoveryState, droppedFrameRatio } from "./playback-health.js?v=20260920-1";
-import { attachSegmentedPlayback, segmentedUrl } from "./segmented-playback.js?v=20260920-1";
+import { playableBuffer, averageMediaBitrate, droppedFrameRatio } from "./playback-health.js?v=20260920-1";
+import { attachSegmentedPlayback, segmentedUrl } from "./segmented-playback.js?v=20260920-2";
 import {
   localPlaybackCandidates,
   playbackCandidates,
@@ -665,11 +665,13 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
 
   const panel = document.createElement("div");
   panel.className = "highlight-buffer-panel";
-  panel.innerHTML = `<div class="highlight-buffer-copy"><strong>预缓存原画</strong><span>正在读取视频索引…</span></div><div class="highlight-buffer-track"><i></i></div><div class="highlight-buffer-actions"><button class="highlight-route-next" type="button">换条线路</button><button class="highlight-buffer-play" type="button" disabled>正在预缓存</button><button class="highlight-play-now" type="button">立即播放</button></div>`;
+  panel.innerHTML = `<div class="highlight-player-toolbar"><span class="highlight-player-status" role="status"></span><div class="highlight-buffer-actions"><button class="highlight-route-next" type="button">换条线路</button><button class="highlight-buffer-play" type="button">播放</button></div></div><details class="highlight-player-details" hidden><summary>播放诊断</summary><div class="highlight-buffer-copy"><strong>有效缓存</strong><span></span></div><div class="highlight-buffer-track"><i></i></div></details>`;
   const status = panel.querySelector(".highlight-buffer-copy span");
   const bar = panel.querySelector(".highlight-buffer-track i");
   const bufferedPlay = panel.querySelector(".highlight-buffer-play");
-  const playNow = panel.querySelector(".highlight-play-now");
+  const brief = panel.querySelector(".highlight-player-status");
+  const details = panel.querySelector(".highlight-player-details");
+  details.append(source);
   const routeNext = panel.querySelector(".highlight-route-next");
   const sample = {
     hasPlayed: false,
@@ -806,34 +808,16 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     }
   };
 
-  const update = () => {
+  const updateDiagnostics = () => {
     if (request !== highlightPlaybackRequest || !video.isConnected) return;
     const now = performance.now();
     const ahead = playableBuffer(video);
-    if (sample.recovering) {
-      if (ahead > sample.lastBufferedEnd + 0.05) sample.lastProgressAt = now;
-      sample.lastBufferedEnd = ahead;
-      const recovery = recoveryState({ ahead, target: sample.recoveryTarget, now, lastProgressAt: sample.lastProgressAt, networkState: video.networkState });
-      bar.style.width = `${Math.min(100, ahead / Math.max(0.1, sample.recoveryTarget) * 100).toFixed(2)}%`;
-      status.textContent = recovery === "suspended"
-        ? `浏览器暂停了后台加载，已缓存 ${formatBufferClock(ahead)}；可点击继续播放。`
-        : recovery === "stalled"
-          ? `暂未收到新数据，已缓存 ${formatBufferClock(ahead)}；可继续等待或换线。`
-          : `正在积累有效缓存 ${formatBufferClock(ahead)} / ${formatBufferClock(sample.recoveryTarget)}，达到目标后自动继续（原画不变）。`;
-      bufferedPlay.disabled = ahead < 0.1;
-      bufferedPlay.textContent = "使用现有缓存继续";
-      playNow.hidden = false;
-      playNow.textContent = "暂停等待";
-      if (recovery === "ready" || recovery === "capped") startPlayback();
-      return;
-    }
     if (sample.terminalError || !sample.playing || sample.waiting) {
       const startup = playbackStartupState({ readyState: video.readyState, requestedAt: sample.requestedAt, now, error: sample.terminalError || sample.playError });
       status.textContent = `${startup.message} 已缓存 ${formatBufferClock(ahead)}。`;
       bar.style.width = `${Math.min(100, ahead / 12 * 100).toFixed(2)}%`;
       bufferedPlay.disabled = startup.disabled;
       bufferedPlay.textContent = startup.label;
-      playNow.hidden = true;
       return;
     }
     const duration = Number(video.duration);
@@ -858,9 +842,30 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     status.textContent = `实际可播放缓存 ${formatBufferClock(bufferAhead)}${decodeWarning}`;
     bufferedPlay.disabled = true;
     bufferedPlay.textContent = "正在播放";
-    playNow.hidden = true;
   };
 
+  const update = () => {
+    if (request !== highlightPlaybackRequest || !video.isConnected) return;
+    details.hidden = !state.security.canManage;
+    if (details.hidden) details.open = false;
+    if (!details.hidden && details.open) updateDiagnostics();
+    const error = sample.terminalError || sample.playError;
+    const pending = sample.waiting || sample.requestedAt !== null;
+    const retryable = pending && sample.requestedAt !== null && performance.now() - sample.requestedAt >= STARTUP_WAIT_MS;
+    const message = error ? "播放未能继续，请重试或换条线路。"
+      : retryable ? "连接较慢，可以重试。"
+      : pending ? "正在缓冲…"
+      : sample.hasPlayed && video.paused && !video.ended ? "已暂停" : "";
+    if (brief.textContent !== message) brief.textContent = message;
+    bufferedPlay.hidden = !error && !retryable && (pending || sample.hasPlayed);
+    if (!bufferedPlay.hidden) {
+      bufferedPlay.textContent = error || retryable ? "重试" : "播放";
+      bufferedPlay.disabled = false;
+    }
+    panel.hidden = details.hidden && !message && bufferedPlay.hidden && routeNext.hidden;
+  };
+
+  details.addEventListener("toggle", update);
   bufferedPlay.addEventListener("click", startPlayback);
   routeNext.hidden = fallbackCandidates.length === 0;
   routeNext.addEventListener("click", () => {
@@ -888,16 +893,9 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   video.addEventListener("waiting", () => {
     sample.waiting = true;
     if (request !== highlightPlaybackRequest || !video.isConnected) return;
-    if (video.dataset.managedStream === "true" && sample.hasPlayed && !sample.recovering && playableBuffer(video) < 1 && !video.seeking && performance.now() - sample.seekAt > 1500) {
-      sample.stalls += 1;
-      sample.recoveryTarget = recoveryBufferTarget({ duration: video.duration, currentTime: video.currentTime, stalls: sample.stalls });
-      sample.recovering = true;
-      sample.lastBufferedEnd = playableBuffer(video);
-      sample.lastProgressAt = performance.now();
-      sample.requestedAt = null;
-      video.preload = "auto";
-      video.pause();
-    } else if (!sample.recovering) sample.requestedAt ??= performance.now();
+    // Keep playback intent active: HLS/native media will resume as soon as a
+    // decodable segment arrives. Do not impose a second pause/resume policy.
+    sample.requestedAt ??= performance.now();
     update();
   });
   video.addEventListener("play", () => { sample.recovering = false; sample.requestedAt ??= performance.now(); sample.waiting = true; update(); });
@@ -907,7 +905,6 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   video.addEventListener("seeking", () => {
     sample.seekAt = performance.now();
     sample.lastBufferedEnd = playableBuffer(video);
-    sample.recoveryTarget = recoveryBufferTarget({ duration: video.duration, currentTime: video.currentTime, stalls: sample.stalls });
     sample.lastProgressAt = performance.now();
     sample.stalled = false;
     update();
@@ -922,16 +919,11 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
       : "视频连接中断，请重试播放。";
     update();
   });
-  viewer.replaceChildren(video, source, panel);
+  viewer.replaceChildren(video, panel);
   stopHighlightBufferTimer();
   panel.querySelector(".highlight-buffer-copy strong").textContent = "原画播放缓冲";
   panel.style.setProperty("--buffer-target", "100%");
-  playNow.addEventListener("click", () => {
-    sample.recovering = false; sample.playing = false; sample.waiting = false; sample.requestedAt = null;
-    video.pause();
-    update();
-  });
-  highlightBufferTimer = setInterval(update, 750);
+  highlightBufferTimer = setInterval(update, 1000);
   setSource(activePlaybackUrl);
   update();
 }
@@ -949,7 +941,7 @@ async function openHighlight(index) {
     $("#highlightDialog").showModal();
     return;
   }
-  viewer.innerHTML = `<div class="highlight-loading"><strong>正在连接媒体节点</strong><span>校验原画播放地址…</span></div>`;
+  viewer.innerHTML = `<div class="highlight-loading"><strong>正在加载视频…</strong><span>请稍候</span></div>`;
   $("#highlightDialog").showModal();
   try {
     let playback;
@@ -976,7 +968,7 @@ async function openHighlight(index) {
       url: safePlaybackUrl(candidate.url)
     })).filter((candidate) => candidate.url);
     if (candidates.length > 1) {
-      viewer.innerHTML = `<div class="highlight-loading"><strong>正在选择更快的媒体节点</strong><span>检查直连、镜像和兼容线路的 Range 可用性；短样本仅供选路，不代表持续播放速度。</span></div>`;
+      viewer.innerHTML = `<div class="highlight-loading"><strong>正在准备播放…</strong><span>正在选择可用线路</span></div>`;
     }
     const rankedCandidates = await rankPlaybackCandidates(candidates, { fileSize: item.size });
     if (request !== highlightPlaybackRequest || !$("#highlightDialog").open) return;

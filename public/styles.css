@@ -1134,24 +1134,24 @@ body:has(#highlightDialog[open] video) .signal-overlay { visibility: hidden; }
 .highlight-loading strong { font-family: "Rajdhani", "Noto Sans SC", sans-serif; font-size: 20px; letter-spacing: .04em; }
 .highlight-loading span { color: var(--muted); font-size: 12px; }
 .highlight-loading.is-error strong { color: var(--pink); }
-.highlight-playback-source { position: absolute; right: 12px; top: 12px; padding: 7px 10px; border: 1px solid currentColor; color: var(--yellow); background: #080a0de8; font-size: 11px; font-weight: 900; pointer-events: none; }
-.highlight-playback-source.is-remote { color: var(--cyan); }
-.highlight-buffer-panel { width: 100%; padding: 15px 17px 17px; border-top: 1px solid #27313a; background: #090c10; box-sizing: border-box; }
-.highlight-buffer-copy { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 10px; text-align: left; }
-.highlight-buffer-copy strong { color: var(--yellow); font-size: 13px; letter-spacing: .05em; }
-.highlight-buffer-copy span { color: #a0a8b2; font-size: 12px; }
-.highlight-buffer-track { position: relative; height: 7px; overflow: hidden; border: 1px solid #38414b; background: #020304; }
-.highlight-buffer-track::after { position: absolute; left: var(--buffer-target, 100%); top: -3px; bottom: -3px; width: 2px; content: ""; background: var(--yellow); box-shadow: 0 0 8px #fcee0a; }
-.highlight-buffer-track i { display: block; width: 0; height: 100%; background: var(--cyan); transition: width .3s linear; }
-.highlight-buffer-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 12px; }
-.highlight-buffer-actions button { padding: 10px 14px; border: 1px solid var(--cyan); color: var(--cyan); background: #06090c; font-size: 12px; font-weight: 900; }
-.highlight-buffer-actions button:hover:not(:disabled) { color: #050608; background: var(--cyan); }
-.highlight-buffer-actions .highlight-play-now { border-color: #5d6670; color: #c0c6cc; }
-.highlight-buffer-actions .highlight-route-next { margin-right: auto; border-color: var(--yellow); color: var(--yellow); }
-.highlight-buffer-actions .highlight-route-next:hover:not(:disabled) { color: #050608; background: var(--yellow); }
+.highlight-playback-source { display: block; margin-top: 8px; color: var(--muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+.highlight-buffer-panel { width: 100%; padding: 6px 12px; border-top: 1px solid #20252a; box-sizing: border-box; }
+.highlight-player-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 32px; }
+.highlight-player-status { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.highlight-buffer-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.highlight-buffer-actions button { padding: 6px 10px; border: 1px solid #3c434b; color: var(--ink); background: transparent; font-size: 12px; }
+.highlight-buffer-actions .highlight-buffer-play { border-color: var(--yellow); color: var(--yellow); }
+.highlight-buffer-actions .highlight-route-next { border-color: transparent; color: var(--muted); }
+.highlight-buffer-actions button:hover:not(:disabled) { border-color: var(--yellow); color: var(--yellow); }
 .highlight-buffer-actions button:disabled { cursor: wait; opacity: .55; }
-.highlight-buffer-panel.is-error { border-top-color: var(--pink); }
-.highlight-buffer-panel.is-error .highlight-buffer-copy strong { color: var(--pink); }
+.highlight-player-toolbar [hidden], .highlight-player-details[hidden], .highlight-buffer-panel[hidden] { display: none !important; }
+.highlight-player-details { margin: 4px 0 6px; color: var(--muted); font-size: 12px; }
+.highlight-player-details summary { width: fit-content; cursor: pointer; padding: 5px 0; }
+.highlight-buffer-copy { display: grid; gap: 5px; margin: 8px 0; text-align: left; font-size: 12px; }
+.highlight-buffer-copy strong { color: var(--muted); font-weight: 500; }
+.highlight-buffer-track { height: 2px; overflow: hidden; background: #20252a; }
+.highlight-buffer-track i { display: block; width: 0; height: 100%; background: var(--cyan); }
+.highlight-buffer-panel.is-error .highlight-player-status { color: #e9a3a8; }
 .dialog-head { display: flex; justify-content: space-between; align-items: start; gap: 16px; margin-bottom: 22px; }
 .dialog-head h2 { margin: 4px 0; font-size: 30px; }
 .close { width: 40px; height: 40px; flex: 0 0 auto; border: 1px solid var(--line-strong); color: var(--muted); background: transparent; font-size: 27px; line-height: 1; }
