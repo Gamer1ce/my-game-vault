@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fcee0a">
+  <title>语音频道 · 中枢圣殿</title>
+  <meta name="description" content="中枢圣殿的朋友语音频道。注册自己的账号，定制个人面板，加入实时语音。">
+  <link rel="icon" href="/icons/favicon-32-v3.png">
+  <link rel="stylesheet" href="/voice.css?v=20260920-1">
+  <script type="module" src="/voice.js?v=20260920-1"></script>
+</head>
+<body>
+  <header class="topbar"><a href="/" class="brand">中枢圣殿<span> / 语音频道</span></a><a href="/" class="back">返回游戏档案</a></header>
+  <main class="community-shell">
+    <aside class="channels" aria-label="语音频道">
+      <div class="section-title"><h1>找个频道，聊会儿。</h1><p>游戏继续，朋友在线。</p></div>
+      <nav id="roomList" aria-label="选择频道"></nav>
+      <div class="account-slot" id="accountSlot"><p>正在读取登录状态…</p></div>
+    </aside>
+    <section class="room-stage" aria-labelledby="roomName">
+      <div class="room-heading"><div><span class="room-eyebrow">VOICE CHANNEL</span><h2 id="roomName">公共大厅</h2><p id="roomDescription">随时进来坐坐</p></div><span id="roomCount" class="room-count">0 / 6</span></div>
+      <div id="authPanel" class="auth-panel" hidden>
+        <h3>先认识一下。</h3><p>只需用户名和密码。社区账号与网站管理员账号独立。</p>
+        <form id="authForm">
+          <label>用户名<input id="username" name="username" minlength="3" maxlength="24" autocomplete="username" required placeholder="你的登录用户名"></label>
+          <label>密码<input id="password" name="password" type="password" minlength="12" maxlength="128" autocomplete="current-password" required placeholder="至少 12 位，可以是一句长句"></label>
+          <div class="auth-actions"><button class="primary" type="submit" name="action" value="login">登录</button><button class="secondary" type="submit" name="action" value="register">注册并登录</button></div>
+          <p class="fineprint">不收集邮箱，暂不支持自助找回密码。请保存好你的登录信息，不要使用其他网站的相同密码。</p>
+        </form>
+      </div>
+      <div class="participants" id="participants" aria-live="polite"></div>
+      <div id="joinPanel" class="join-panel" hidden><button class="primary" id="joinButton" type="button">加入语音</button><p>加入后才会请求麦克风。点对点通话不录音，同频道成员可能获知彼此的网络地址；部分网络组合可能无法互通。</p></div>
+      <div id="callBar" class="call-bar" hidden>
+        <span id="callStatus" role="status">正在连接…</span>
+        <div class="call-controls"><button id="muteButton" type="button" aria-pressed="false">麦克风开</button><button id="deafenButton" type="button" aria-pressed="false">声音开</button><button id="audioUnlock" type="button" hidden>点击启用声音</button><button id="leaveButton" type="button" class="danger">离开频道</button></div>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+    </section>
+    <aside class="profile-pane" aria-label="我的个人面板">
+      <div class="profile-card theme-yellow" id="profilePreview"><div class="profile-banner"></div><div class="profile-body"><div class="avatar" id="previewAvatar">?</div><h2 id="previewName">你的个人面板</h2><p class="handle" id="previewHandle">登录后定制</p><p id="previewBio" class="bio">给朋友留下一点关于你的线索。</p></div></div>
+      <form id="profileForm" hidden>
+        <h3>编辑个人面板</h3>
+        <label>展示昵称<input id="displayName" maxlength="32" required></label>
+        <label>个人简介<textarea id="bio" maxlength="180" rows="3" placeholder="你正在玩的游戏，或你想说的话。"></textarea></label>
+        <label>面板配色<select id="theme"><option value="yellow">电光黄</option><option value="cyan">冰蓝</option><option value="violet">紫罗兰</option><option value="orange">熔岩橙</option><option value="silver">银灰</option></select></label>
+        <label>头像<input id="avatarFile" type="file" accept="image/png,image/jpeg,image/webp"></label>
+        <div class="profile-actions"><button id="removeAvatar" class="text-button" type="button">移除头像</button><button id="saveProfile" class="primary" type="submit">保存面板</button></div>
+        <p class="fineprint">头像与个人面板会展示给已登录的频道成员。图片自动缩小，原图不会保存。</p>
+      </form>
+    </aside>
+  </main>
+  <div id="remoteAudio" aria-hidden="true"></div>
+</body>
+</html>

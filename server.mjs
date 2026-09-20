@@ -37,6 +37,7 @@ import { createMinecraftPlayerLogStore } from "./src/minecraft-player-log.mjs";
 import { createMinecraftStatusService } from "./src/minecraft-status.mjs";
 import { createCpaUsageService, registerCpaUsageRoutes } from "./src/cpa-usage.mjs";
 import { registerKeeperUiRoutes } from "./src/keeper-ui.mjs";
+import { createVoiceCommunity } from "./src/voice-community.mjs";
 import {
   calibratedFinalMinutes,
   matchPlaystationCalibrationRecord,
@@ -77,6 +78,7 @@ const metacritic = createMetacriticConnector();
 const port = Number(process.env.PORT || 4173);
 const publicMode = process.env.PUBLIC_MODE === "1" || existsSync(path.join(dataDir, "public-mode"));
 const platformSyncEnabled = process.env.PLATFORM_SYNC_ENABLED !== "0";
+const voiceEnabled = process.env.VOICE_COMMUNITY_ENABLED === "1" || existsSync(path.join(dataDir, "voice-enabled"));
 const syncRequestQueue = createSyncRequestQueue(process.env.SYNC_REQUEST_FILE);
 
 function optionalHttpsOrigin(value) {
@@ -343,7 +345,9 @@ function setSecurityHeaders(_req, res, next) {
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
+    "Permissions-Policy": voiceEnabled && ["/voice", "/voice.html"].includes(_req.path)
+      ? "camera=(), microphone=(self), geolocation=()"
+      : "camera=(), microphone=(), geolocation=()"
   });
   const cacheControl = apiCacheControl(_req.method, _req.path);
   if (cacheControl) res.set("Cache-Control", cacheControl);
@@ -352,6 +356,13 @@ function setSecurityHeaders(_req, res, next) {
 
 app.use(setSecurityHeaders);
 app.use(express.json({ limit: "1mb" }));
+if (voiceEnabled) {
+  const voiceCommunity = createVoiceCommunity({ dataDirectory: dataDir });
+  app.use("/api/voice", voiceCommunity.router);
+} else {
+  app.use("/api/voice", (_req, res) => res.status(503).json({ error: "此站点未启用语音社区，请使用主站" }));
+}
+app.get("/voice", (_req, res) => res.redirect(302, "/voice.html"));
 app.get("/api/security", (req, res) => res.json({
   publicMode,
   canManage: adminAuthenticated(req),
