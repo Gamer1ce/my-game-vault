@@ -38,6 +38,7 @@ import { createMinecraftStatusService } from "./src/minecraft-status.mjs";
 import { createCpaUsageService, registerCpaUsageRoutes } from "./src/cpa-usage.mjs";
 import { registerKeeperUiRoutes } from "./src/keeper-ui.mjs";
 import { createVoiceCommunity } from "./src/voice-community.mjs";
+import { createVoiceProfileDesigner } from "./src/voice-profile-ai.mjs";
 import {
   calibratedFinalMinutes,
   matchPlaystationCalibrationRecord,
@@ -357,7 +358,14 @@ function setSecurityHeaders(_req, res, next) {
 app.use(setSecurityHeaders);
 app.use(express.json({ limit: "1mb" }));
 if (voiceEnabled) {
-  const voiceCommunity = createVoiceCommunity({ dataDirectory: dataDir });
+  const aiEnabled = process.env.VOICE_PROFILE_AI_ENABLED === "1" || existsSync(path.join(dataDir, "voice-ai-enabled"));
+  const cpaCredentials = createCpaUsageService({ databasePath: process.env.CPA_USAGE_DB });
+  const profileDesigner = aiEnabled ? createVoiceProfileDesigner({
+    baseUrl: process.env.VOICE_AI_BASE_URL || "http://cli-proxy-api:8317/v1",
+    model: process.env.VOICE_AI_MODEL || "grok-4.6",
+    getApiKey: () => process.env.VOICE_AI_API_KEY || cpaCredentials.connection().apiKeys[0]
+  }) : null;
+  const voiceCommunity = createVoiceCommunity({ dataDirectory: dataDir, profileDesigner });
   app.use("/api/voice", voiceCommunity.router);
 } else {
   app.use("/api/voice", (_req, res) => res.status(503).json({ error: "此站点未启用语音社区，请使用主站" }));

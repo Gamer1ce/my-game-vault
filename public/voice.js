@@ -1,3 +1,5 @@
+import { PROFILE_THEMES, DEFAULT_PROFILE_DESIGN, normalizeProfileDesign } from "./voice-design.js?v=20260920-2";
+
 const $ = selector => document.querySelector(selector);
 const rooms = [
   { id: "lobby", name: "公共大厅", description: "随时进来坐坐", members: [], capacity: 6 },
@@ -11,8 +13,13 @@ let avatarPreview;
 let heartbeat;
 let speakingTimer;
 let audioContext;
+let designDraft;
+let aiDraft = null;
+let aiController = null;
+let aiInfo = null;
+let profileSaving = false;
 const peers = new Map();
-const themes = new Set(["yellow", "cyan", "violet", "orange", "silver"]);
+const themes = new Set(PROFILE_THEMES);
 
 function status(message = "", error = false) { $("#status").textContent = message; $("#status").classList.toggle("error", error); }
 async function api(path, body, method = "POST", options = {}) {
@@ -43,21 +50,31 @@ function avatar(user, target) {
 }
 function renderProfile(user = state.user) {
   if (!user) return;
-  $("#profilePreview").className = `profile-card theme-${themes.has(user.theme) ? user.theme : "yellow"}`;
+  applyProfileDesign($("#profilePreview"), user, "profile-card");
   avatar(user, $("#previewAvatar"));
   $("#previewName").textContent = user.displayName;
   $("#previewHandle").textContent = `@${user.username}`;
   $("#previewBio").textContent = user.bio || "这个人还没有留下简介。";
+  const tagline = normalizeProfileDesign(user.design).tagline;
+  $("#previewTagline").textContent = tagline;
+  $("#previewTagline").hidden = !tagline;
+}
+function applyProfileDesign(node, user, className) {
+  node.className = `${className} theme-${themes.has(user.theme) ? user.theme : "yellow"}`;
+  const design = normalizeProfileDesign(user.design);
+  for (const key of ["layout", "banner", "font", "surface", "edges", "avatarShape", "motion"]) node.dataset[key] = design[key];
 }
 function updateProfileForm() {
   if (!state.user) return;
   $("#displayName").value = state.user.displayName; $("#bio").value = state.user.bio; $("#theme").value = state.user.theme;
   avatarDraft = undefined; avatarPreview = undefined; $("#avatarFile").value = "";
+  designDraft = normalizeProfileDesign(state.user.design);
   renderProfile();
 }
 function previewDraft() {
+  if (!state.user) return;
   renderProfile({ ...state.user, displayName: $("#displayName").value || state.user.displayName, bio: $("#bio").value, theme: $("#theme").value,
-    avatarUrl: avatarPreview === undefined ? state.user.avatarUrl : avatarPreview });
+    design: designDraft, ...(aiDraft || {}), avatarUrl: avatarPreview === undefined ? state.user.avatarUrl : avatarPreview });
 }
 function render() {
   const current = state.rooms.find(room => room.id === state.selected);
@@ -71,6 +88,14 @@ function render() {
   }));
   $("#authPanel").hidden = Boolean(state.user);
   $("#profileForm").hidden = !state.user;
+  if (!state.user) {
+    aiController?.abort(); aiController = null; aiDraft = null; aiInfo = null;
+    applyProfileDesign($("#profilePreview"), { theme: "yellow" }, "profile-card");
+    avatar(null, $("#previewAvatar")); $("#previewName").textContent = "你的个人面板";
+    $("#previewHandle").textContent = "登录后定制"; $("#previewBio").textContent = "给朋友留下一点关于你的线索。";
+    $("#previewTagline").textContent = ""; $("#previewTagline").hidden = true;
+  }
+  updateDesignControls();
   $("#joinPanel").hidden = !state.user || state.call?.roomId === state.selected;
   $("#joinButton").disabled = state.joining;
   $("#joinButton").textContent = state.joining ? "等待麦克风授权…" : state.call ? "切换到这个频道" : "加入语音";
@@ -85,12 +110,13 @@ function render() {
     const empty = element("div", "empty-channel"); empty.append(element("strong", "", "频道空着，等你开麦。"), element("span", "", "每个频道最多 6 人")); $("#participants").append(empty);
   }
   for (const member of current.members) {
-    const card = element("article", `member-card theme-${themes.has(member.user.theme) ? member.user.theme : "yellow"}`);
+    const card = element("article"); applyProfileDesign(card, member.user, "member-card");
     card.dataset.peerId = member.peerId;
     const face = element("div", "avatar"); avatar(member.user, face);
     const connection = member.peerId === state.call?.peerId ? "你" : state.call?.roomId === current.id ? (peers.get(member.peerId)?.pc.connectionState === "connected" ? "已连接" : "连接中") : "在线";
     card.append(face, element("strong", "", member.user.displayName), element("p", "", member.deafened ? "声音与麦克风已关闭" : member.muted ? "麦克风已静音" : connection));
     if (member.user.bio) card.append(element("p", "member-bio", member.user.bio));
+    if (member.user.design?.tagline) card.append(element("p", "profile-tagline", member.user.design.tagline));
     $("#participants").append(card);
   }
   updateCallControls();
@@ -118,7 +144,7 @@ $("#authForm").addEventListener("submit", async event => {
   try {
     const result = await api(action, { username: $("#username").value, password: $("#password").value });
     state.user = result.user; state.csrf = result.csrf; $("#password").value = ""; updateProfileForm(); render();
-    await loadRooms(); status(action === "register" ? "账号已创建。你可以先定制面板，或直接加入语音。" : "欢迎回来。");
+    await Promise.all([loadRooms(), loadDesignInfo()]); status(action === "register" ? "账号已创建。你可以先定制面板，或直接加入语音。" : "欢迎回来。");
   } catch (error) { status(error.message, true); } finally { buttons.forEach(button => button.disabled = false); }
 });
 $("#profileForm").addEventListener("input", previewDraft);
@@ -135,11 +161,66 @@ $("#avatarFile").addEventListener("change", async () => {
 });
 $("#removeAvatar").addEventListener("click", () => { avatarDraft = null; avatarPreview = null; $("#avatarFile").value = ""; previewDraft(); });
 $("#profileForm").addEventListener("submit", async event => {
-  event.preventDefault(); $("#saveProfile").disabled = true;
+  event.preventDefault(); if (!aiDraft && !aiController) await saveProfileDraft();
+});
+async function saveProfileDraft() {
+  if (profileSaving || !state.user) return;
+  profileSaving = true; updateDesignControls();
   try {
-    const result = await api("profile", { displayName: $("#displayName").value, bio: $("#bio").value, theme: $("#theme").value, ...(avatarDraft === undefined ? {} : { avatar: avatarDraft }) }, "PATCH");
+    const result = await api("profile", { displayName: $("#displayName").value, bio: $("#bio").value, theme: $("#theme").value, design: designDraft,
+      ...(aiDraft || {}), ...(avatarDraft === undefined ? {} : { avatar: avatarDraft }) }, "PATCH");
+    aiDraft = null;
     state.user = result.user; updateProfileForm(); render(); status("个人面板已保存。");
-  } catch (error) { status(error.message, true); } finally { $("#saveProfile").disabled = false; }
+    designMessage("已应用，频道里的朋友现在可以看到你的新面板。");
+  } catch (error) { status(error.message, true); } finally { profileSaving = false; updateDesignControls(); }
+}
+function designMessage(message) { $("#designStatus").textContent = message; }
+function updateDesignControls() {
+  $("#aiDesignForm").hidden = !state.user || !aiInfo?.enabled;
+  $("#generateDesign").disabled = Boolean(aiController || aiDraft || profileSaving) || aiInfo?.remaining === 0;
+  $("#generateDesign").textContent = aiController ? "正在设计…" : "生成预览";
+  $("#designPrompt").disabled = Boolean(aiController || aiDraft || profileSaving);
+  $("#cancelDesign").hidden = !aiController;
+  $("#designDecision").hidden = !aiDraft;
+  $("#previewState").hidden = !aiDraft;
+  $("#profileFields").disabled = Boolean(aiController || aiDraft || profileSaving);
+  $("#applyDesign").disabled = $("#discardDesign").disabled = profileSaving;
+}
+async function loadDesignInfo() {
+  const userId = state.user?.id;
+  try {
+    const info = await api("profile-ai");
+    if (state.user?.id !== userId) return;
+    aiInfo = info; updateDesignControls();
+    if (!aiController && !aiDraft) designMessage(`${info.model || "AI"} · 今日剩余 ${info.remaining} / ${info.dailyLimit} 次`);
+  } catch { /* Manual editing and voice remain usable if AI is unavailable. */ }
+}
+$("#aiDesignForm").addEventListener("submit", async event => {
+  event.preventDefault(); if (aiController || aiDraft || profileSaving || !state.user) return;
+  const controller = new AbortController(); aiController = controller;
+  const userId = state.user.id, csrf = state.csrf;
+  updateDesignControls(); designMessage("正在设计面板，通常需要十几秒，最长等待一分钟。语音通话不受影响。");
+  try {
+    const result = await api("profile-ai", { prompt: $("#designPrompt").value }, "POST", { signal: AbortSignal.any([controller.signal, AbortSignal.timeout(65_000)]) });
+    if (aiController !== controller || state.user?.id !== userId || state.csrf !== csrf) return;
+    aiDraft = { theme: themes.has(result.draft.theme) ? result.draft.theme : "yellow", bio: result.draft.bio, design: normalizeProfileDesign(result.draft.design) };
+    aiInfo = result; previewDraft(); designMessage(`新设计已预览，确认后才会保存。今日还可生成 ${result.remaining} 次。`);
+    $("#previewState").hidden = false;
+    $("#profilePreview").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "nearest" });
+  } catch (error) {
+    if (aiController === controller) designMessage(error.name === "AbortError" || error.name === "TimeoutError" ? "生成已取消或超时，原来的面板没有改变。" : error.message);
+  } finally {
+    if (aiController === controller) {
+      aiController = null; updateDesignControls();
+      if (state.user?.id === userId) api("profile-ai").then(info => { if (state.user?.id === userId) { aiInfo = info; updateDesignControls(); } }).catch(() => {});
+    }
+  }
+});
+$("#cancelDesign").addEventListener("click", () => { aiController?.abort(); });
+$("#discardDesign").addEventListener("click", () => { aiDraft = null; previewDraft(); updateDesignControls(); designMessage("已放弃预览，原来的面板没有改变。"); loadDesignInfo(); });
+$("#applyDesign").addEventListener("click", () => { if (aiDraft) saveProfileDraft(); });
+$("#resetDesign").addEventListener("click", () => {
+  designDraft = { ...DEFAULT_PROFILE_DESIGN }; previewDraft(); status("已预览默认布局，点击保存面板生效。");
 });
 
 function analyzer(stream) {
@@ -306,8 +387,8 @@ $("#audioUnlock").addEventListener("click", async () => {
   try { await audioContext?.resume(); await Promise.all([...peers.values()].filter(peer => peer.audio).map(peer => peer.audio.play())); $("#audioUnlock").hidden = true; }
   catch { status("声音仍被浏览器阻止，请检查网站的声音权限。", true); }
 });
-window.addEventListener("pagehide", () => { leave(); });
+window.addEventListener("pagehide", () => { aiController?.abort(); leave(); });
 document.addEventListener("visibilitychange", () => { if (!document.hidden) { audioContext?.resume().catch(() => {}); if (state.call) updatePresence(); } });
 setInterval(() => { if (!document.hidden && state.user && !state.call && !state.joining) loadRooms().catch(() => {}); }, 15_000);
 render();
-api("session").then(async result => { state.user = result.user; state.csrf = result.csrf || ""; updateProfileForm(); render(); if (state.user) await loadRooms(); }).catch(error => { status(error.message, true); render(); });
+api("session").then(async result => { state.user = result.user; state.csrf = result.csrf || ""; updateProfileForm(); render(); if (state.user) await Promise.all([loadRooms(), loadDesignInfo()]); }).catch(error => { status(error.message, true); render(); });

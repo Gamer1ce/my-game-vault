@@ -7,8 +7,8 @@
   <title>语音频道 · 中枢圣殿</title>
   <meta name="description" content="中枢圣殿的朋友语音频道。注册自己的账号，定制个人面板，加入实时语音。">
   <link rel="icon" href="/icons/favicon-32-v3.png">
-  <link rel="stylesheet" href="/voice.css?v=20260920-1">
-  <script type="module" src="/voice.js?v=20260920-1"></script>
+  <link rel="stylesheet" href="/voice.css?v=20260920-2">
+  <script type="module" src="/voice.js?v=20260920-2"></script>
 </head>
 <body>
   <header class="topbar"><a href="/" class="brand">中枢圣殿<span> / 语音频道</span></a><a href="/" class="back">返回游戏档案</a></header>
@@ -38,15 +38,27 @@
       <p id="status" class="status" role="status" aria-live="polite"></p>
     </section>
     <aside class="profile-pane" aria-label="我的个人面板">
-      <div class="profile-card theme-yellow" id="profilePreview"><div class="profile-banner"></div><div class="profile-body"><div class="avatar" id="previewAvatar">?</div><h2 id="previewName">你的个人面板</h2><p class="handle" id="previewHandle">登录后定制</p><p id="previewBio" class="bio">给朋友留下一点关于你的线索。</p></div></div>
+      <div class="profile-preview-wrap"><p id="previewState" class="preview-state" hidden>AI 方案预览 · 尚未保存</p>
+      <div class="profile-card theme-yellow" id="profilePreview"><div class="profile-banner"></div><div class="profile-body"><div class="avatar" id="previewAvatar">?</div><h2 id="previewName">你的个人面板</h2><p class="handle" id="previewHandle">登录后定制</p><p id="previewTagline" class="profile-tagline" hidden></p><p id="previewBio" class="bio">给朋友留下一点关于你的线索。</p></div></div>
+      </div><form id="aiDesignForm" class="ai-design-form" hidden>
+        <h3>让 AI 设计面板</h3>
+        <label for="designPrompt">描述你想要的样子<textarea id="designPrompt" minlength="3" maxlength="1200" rows="3" required placeholder="深蓝色的太空终端，等宽字体，环形背景，头像居中。保留我的简介。"></textarea></label>
+        <div class="ai-actions"><button id="generateDesign" class="primary" type="submit">生成预览</button><button id="cancelDesign" class="text-button" type="button" hidden>取消</button></div>
+        <div id="designDecision" class="ai-actions" hidden><button id="applyDesign" class="primary" type="button">应用到我的面板</button><button id="discardDesign" class="text-button" type="button">放弃预览</button></div>
+        <p id="designStatus" class="fineprint" role="status" aria-live="polite"></p>
+        <p class="fineprint">需求和当前简介会交给站长提供的 AI 服务处理，请勿输入密码等敏感信息。生成后需确认应用；每次生成会消耗一次额度。</p>
+      </form>
       <form id="profileForm" hidden>
+        <fieldset id="profileFields">
         <h3>编辑个人面板</h3>
         <label>展示昵称<input id="displayName" maxlength="32" required></label>
         <label>个人简介<textarea id="bio" maxlength="180" rows="3" placeholder="你正在玩的游戏，或你想说的话。"></textarea></label>
-        <label>面板配色<select id="theme"><option value="yellow">电光黄</option><option value="cyan">冰蓝</option><option value="violet">紫罗兰</option><option value="orange">熔岩橙</option><option value="silver">银灰</option></select></label>
+        <label>面板配色<select id="theme"><option value="yellow">电光黄</option><option value="cyan">冰蓝</option><option value="violet">紫罗兰</option><option value="orange">熔岩橙</option><option value="silver">银灰</option><option value="rose">玫瑰粉</option><option value="green">薄荷绿</option><option value="blue">钴蓝</option></select></label>
         <label>头像<input id="avatarFile" type="file" accept="image/png,image/jpeg,image/webp"></label>
         <div class="profile-actions"><button id="removeAvatar" class="text-button" type="button">移除头像</button><button id="saveProfile" class="primary" type="submit">保存面板</button></div>
+        <button id="resetDesign" class="text-button" type="button">恢复默认布局</button>
         <p class="fineprint">头像与个人面板会展示给已登录的频道成员。图片自动缩小，原图不会保存。</p>
+        </fieldset>
       </form>
     </aside>
   </main>

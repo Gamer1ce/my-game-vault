@@ -6,11 +6,13 @@ import { chmodSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { parseCookies, isLoopbackHost } from "./security.mjs";
+import { PROFILE_THEMES, normalizeProfileDesign } from "../public/voice-design.js";
+import { VOICE_AI_LIMITS } from "./voice-profile-ai.mjs";
 
 const derive = promisify(scrypt);
 const SESSION_MS = 7 * 86400_000;
 const COOKIE = "mgv_voice";
-const THEMES = ["yellow", "cyan", "violet", "orange", "silver"];
+const THEMES = PROFILE_THEMES;
 export const VOICE_ROOMS = [
   { id: "lobby", name: "公共大厅", description: "随时进来坐坐" },
   { id: "squad", name: "组队频道", description: "集合，准备出发" },
@@ -29,7 +31,7 @@ export function validateVoiceCredentials(body = {}) {
   return { username, password };
 }
 
-export function createVoiceCommunity({ dataDirectory, databaseFile, now = Date.now } = {}) {
+export function createVoiceCommunity({ dataDirectory, databaseFile, now = Date.now, profileDesigner = null } = {}) {
   const filename = databaseFile || path.join(dataDirectory, "voice.db");
   const db = new DatabaseSync(filename);
   if (filename !== ":memory:") chmodSync(filename, 0o600);
@@ -45,15 +47,20 @@ export function createVoiceCommunity({ dataDirectory, databaseFile, now = Date.n
     );
     CREATE INDEX IF NOT EXISTS voice_sessions_user ON voice_sessions(user_id);
     CREATE INDEX IF NOT EXISTS voice_sessions_expiry ON voice_sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS voice_ai_usage (scope TEXT NOT NULL, day TEXT NOT NULL, count INTEGER NOT NULL, last_at INTEGER NOT NULL, PRIMARY KEY(scope, day));
   `);
+  if (!db.prepare("PRAGMA table_info(voice_users)").all().some(column => column.name === "design")) db.exec("ALTER TABLE voice_users ADD COLUMN design TEXT NOT NULL DEFAULT '{}'");
   const router = express.Router();
   const members = new Map();
   const limits = new Map();
   let hashing = 0;
   let joinOrder = 0;
+  const aiActive = new Map();
+  const storedDesign = user => { try { return normalizeProfileDesign(JSON.parse(user.design || "{}")); } catch { return normalizeProfileDesign(null); } };
   const publicUser = user => ({ id: user.id, username: user.username, displayName: user.display_name, bio: user.bio, theme: user.theme,
+    design: storedDesign(user),
     avatarUrl: user.avatar_version ? `/api/voice/avatar/${user.id}?v=${user.avatar_version}` : null });
-  const userById = id => db.prepare("SELECT id, username, display_name, bio, theme, avatar_version FROM voice_users WHERE id=?").get(id);
+  const userById = id => db.prepare("SELECT id, username, display_name, bio, theme, design, avatar_version FROM voice_users WHERE id=?").get(id);
   const serialize = member => ({ peerId: member.peerId, order: member.order, muted: member.muted, deafened: member.deafened, user: publicUser(userById(member.userId)) });
   const roomList = () => VOICE_ROOMS.map(room => ({ ...room, capacity: 6, members: [...members.values()].filter(m => m.roomId === room.id).map(serialize) }));
 
@@ -166,10 +173,43 @@ export function createVoiceCommunity({ dataDirectory, databaseFile, now = Date.n
   }));
   router.post("/logout", wrap((req, res) => {
     const session = requireSession(req); writeGuard(req, session);
+    aiActive.get(session.user_id)?.abort();
     for (const member of [...members.values()]) if (member.sessionHash === session.token_hash) remove(member.peerId);
     db.prepare("DELETE FROM voice_sessions WHERE token_hash=?").run(session.token_hash);
     res.clearCookie(COOKIE, { httpOnly: true, sameSite: "strict", secure: req.secure, path: "/api/voice" });
     res.status(204).end();
+  }));
+  const aiDay = () => new Date(now() + 8 * 3600_000).toISOString().slice(0, 10);
+  const aiUsage = userId => ({ enabled: Boolean(profileDesigner), model: profileDesigner?.model || null, dailyLimit: VOICE_AI_LIMITS.perUser,
+    remaining: Math.max(0, VOICE_AI_LIMITS.perUser - (db.prepare("SELECT count FROM voice_ai_usage WHERE scope=? AND day=?").get(`user:${userId}`, aiDay())?.count || 0)) });
+  router.get("/profile-ai", wrap((req, res) => { const session = requireSession(req); res.json(aiUsage(session.user_id)); }));
+  router.post("/profile-ai", wrap(async (req, res) => {
+    const session = requireSession(req); writeGuard(req, session);
+    if (!profileDesigner) throw fail(503, "此站点尚未启用 AI 面板设计");
+    const prompt = req.body?.prompt;
+    if (typeof prompt !== "string" || prompt.trim().length < 3 || prompt.length > 1200) throw fail(400, "请用 3–1200 个字描述你想要的面板");
+    if (aiActive.has(session.user_id) || aiActive.size >= VOICE_AI_LIMITS.concurrent) throw fail(429, "已有设计正在生成，请稍后再试");
+    const day = aiDay();
+    const scopes = [[`user:${session.user_id}`, VOICE_AI_LIMITS.perUser], [`ip:${digest(req.ip || "unknown")}`, VOICE_AI_LIMITS.perIp], ["global", VOICE_AI_LIMITS.global]];
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare("DELETE FROM voice_ai_usage WHERE day<?").run(day);
+      for (const [scope, maximum] of scopes) {
+        const row = db.prepare("SELECT count,last_at FROM voice_ai_usage WHERE scope=? AND day=?").get(scope, day);
+        if (row?.count >= maximum) throw fail(429, scope.startsWith("user:") ? "今天的 AI 设计次数已用完，明天再来试试" : "今日共享 AI 设计额度已用完，请明天再试");
+        if (scope.startsWith("user:") && row && now() - row.last_at < VOICE_AI_LIMITS.cooldownMs) throw fail(429, "请稍等 30 秒再生成新的设计");
+      }
+      for (const [scope] of scopes) db.prepare("INSERT INTO voice_ai_usage VALUES(?,?,1,?) ON CONFLICT(scope,day) DO UPDATE SET count=count+1,last_at=excluded.last_at").run(scope, day, now());
+      db.exec("COMMIT");
+    } catch (error) { db.exec("ROLLBACK"); throw error; }
+    const controller = new AbortController(); aiActive.set(session.user_id, controller);
+    const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+    res.once("close", disconnected);
+    try {
+      const draft = await profileDesigner.generate({ prompt: prompt.trim(), current: publicUser(userById(session.user_id)), signal: controller.signal });
+      if (!getSession(req)) throw fail(401, "登录已过期，请重新登录");
+      res.json({ draft, ...aiUsage(session.user_id) });
+    } finally { res.off("close", disconnected); aiActive.delete(session.user_id); }
   }));
   router.patch("/profile", wrap(async (req, res) => {
     const session = requireSession(req); writeGuard(req, session);
@@ -178,6 +218,9 @@ export function createVoiceCommunity({ dataDirectory, databaseFile, now = Date.n
     const bio = clean(req.body.bio, 180);
     const theme = req.body.theme;
     if (!displayName || !THEMES.includes(theme)) throw fail(400, "请填写昵称并选择一种面板配色");
+    let design;
+    try { design = req.body.design === undefined ? storedDesign(userById(session.user_id)) : normalizeProfileDesign(req.body.design, true); }
+    catch { throw fail(400, "面板设计格式不正确，请重新生成"); }
     let avatar;
     if (req.body.avatar === null) avatar = null;
     else if (req.body.avatar !== undefined) {
@@ -190,7 +233,7 @@ export function createVoiceCommunity({ dataDirectory, databaseFile, now = Date.n
         avatar = await image.rotate().resize(256, 256, { fit: "cover" }).webp({ quality: 82 }).toBuffer();
       } catch { throw fail(400, "无法读取这张头像，请选择 JPG、PNG 或 WebP 图片"); }
     }
-    db.prepare("UPDATE voice_users SET display_name=?, bio=?, theme=? WHERE id=?").run(displayName, bio, theme, session.user_id);
+    db.prepare("UPDATE voice_users SET display_name=?, bio=?, theme=?, design=? WHERE id=?").run(displayName, bio, theme, JSON.stringify(design), session.user_id);
     if (avatar !== undefined) db.prepare("UPDATE voice_users SET avatar=?, avatar_version=? WHERE id=?").run(avatar, avatar ? now() : 0, session.user_id);
     for (const member of members.values()) if (member.userId === session.user_id) broadcast(member.roomId);
     res.json({ user: publicUser(userById(session.user_id)) });
@@ -268,5 +311,5 @@ export function createVoiceCommunity({ dataDirectory, databaseFile, now = Date.n
   }
   const interval = setInterval(sweep, 15_000); interval.unref();
   router.use((_req, res) => res.status(404).json({ error: "社区接口不存在" }));
-  return { router, db, sweep, close() { clearInterval(interval); for (const member of [...members.values()]) remove(member.peerId); db.close(); } };
+  return { router, db, sweep, close() { clearInterval(interval); for (const controller of aiActive.values()) controller.abort(); for (const member of [...members.values()]) remove(member.peerId); db.close(); } };
 }

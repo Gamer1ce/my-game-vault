@@ -7,6 +7,7 @@ data/credentials.enc.tmp
 data/admin-access.json
 data/public-mode
 data/voice-enabled
+data/voice-ai-enabled
 data/highlights-path.txt
 data/direct-media-origin.txt
 data/mirror-media-origin.txt
