@@ -13,6 +13,9 @@ services:
       PORT: "4173"
       DATA_DIR: /data
       HIGHLIGHTS_DIR: /media/highlights
+      PRIVATE_HIGHLIGHTS_DIR: /media/private-dai
+      PUBLIC_MEDIA_LOCAL_ONLY: "1"
+      AZURE_RETIRED: "1"
       PUBLIC_MODE: "1"
       TRUST_PROXY: "1"
       PLATFORM_SYNC_ENABLED: "${PLATFORM_SYNC_ENABLED:-1}"
@@ -23,9 +26,9 @@ services:
       AZURE_BACKUP_KEY_PATH: /run/secrets/azure-key.pem
       AZURE_BACKUP_MEDIA_DIR: /media/highlights
       AZURE_BACKUP_DEPLOYMENT_MODE: docker
-      AZURE_BACKUP_SYNC_ENABLED: "${AZURE_BACKUP_SYNC_ENABLED:-1}"
+      AZURE_BACKUP_SYNC_ENABLED: "0"
       AZURE_BACKUP_SYNC_COMMAND: /app/scripts/sync-azure-backup.zsh
-      AZURE_SYNC_REQUEST_POLL_ENABLED: "${AZURE_SYNC_REQUEST_POLL_ENABLED:-1}"
+      AZURE_SYNC_REQUEST_POLL_ENABLED: "0"
       AZURE_SYNC_REQUEST_POLL_COMMAND: /app/scripts/poll-azure-sync-request.zsh
       AZURE_SYNC_REQUEST_STATE_DIR: /data/runtime
       GAME_VAULT_ADMIN_FILE: /data/admin-access.json
@@ -41,16 +44,12 @@ services:
         source: "${GAME_VAULT_DATA_DIR:-./data}"
         target: /data
       - type: bind
-        source: "${GAME_VAULT_MEDIA_DIR:-/Volumes/游戏视频}"
+        source: "${GAME_VAULT_MEDIA_DIR:-/Volumes/游戏视频（韩冰屹）}"
         target: /media/highlights
         read_only: true
       - type: bind
-        source: "${AZURE_BACKUP_KEY_PATH:-/Users/gamer1ce/.ssh/game-vault-azure_key.pem}"
-        target: /run/secrets/azure-key.pem
-        read_only: true
-      - type: bind
-        source: "${SSH_KNOWN_HOSTS_PATH:-/Users/gamer1ce/.ssh/known_hosts}"
-        target: /home/node/.ssh/known_hosts
+        source: "${GAME_VAULT_PRIVATE_MEDIA_DIR:-/Volumes/游戏视频（戴卓然）}"
+        target: /media/private-dai
         read_only: true
       - type: bind
         source: "${MINECRAFT_METRICS_DIR:-/Users/gamer1ce/.local/share/game-vault-minecraft}"

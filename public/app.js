@@ -82,7 +82,7 @@ function renderSecurity() {
   $("#syncAllFooter").classList.toggle("hidden", !state.security.canManage);
   $("#feedbackInboxButton").classList.toggle("hidden", !state.security.canManage);
   $("#adminButton").classList.toggle("hidden", !state.security.publicMode || (!state.security.canManage && !state.security.adminAvailable));
-  $("#adminButton").textContent = state.security.canManage ? "退出管理" : "管理员登录";
+  $("#adminButton").textContent = state.security.canManage ? "退出管理" : state.security.user?.role === "media" ? "我的视频" : "用户登录";
   renderMediaPower();
   renderProviders();
   if (state.highlights.length) renderHighlights();
@@ -1281,17 +1281,22 @@ $("#connectForm").addEventListener("submit", async (event) => {
 $("#adminButton").addEventListener("click", async () => {
   if (state.security.canManage) {
     try {
-      await api("/api/admin/session", { method:"DELETE" });
+      await api("/api/user/session", { method:"DELETE" });
       await Promise.all([loadSecurity(), loadConnections()]);
       toast("已退出管理模式");
     } catch (error) { toast(error.message); }
     return;
   }
+  if (state.security.user?.role === "media") { window.location.assign("/my-videos.html"); return; }
+  openUserLogin();
+});
+
+function openUserLogin() {
   $("#adminForm").reset();
-  $("#adminForm").elements.username.value = "admin";
   $("#adminError").textContent = "";
   $("#adminDialog").showModal();
-});
+}
+if (new URLSearchParams(window.location.search).get("login") === "1") openUserLogin();
 
 $("#adminForm").addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -1300,9 +1305,11 @@ $("#adminForm").addEventListener("submit", async (event) => {
   button.disabled = true;
   try {
     const body = Object.fromEntries(new FormData(form));
-    state.security = await api("/api/admin/session", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    const result = await api("/api/user/session", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
     form.reset();
     $("#adminDialog").close();
+    if (result.redirect === "/my-videos.html") { window.location.assign(result.redirect); return; }
+    state.security = result;
     await loadConnections();
     renderSecurity();
     toast("管理模式已解锁");

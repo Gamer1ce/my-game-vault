@@ -39,6 +39,8 @@ import { createCpaUsageService, registerCpaUsageRoutes } from "./src/cpa-usage.m
 import { registerKeeperUiRoutes } from "./src/keeper-ui.mjs";
 import { createVoiceCommunity } from "./src/voice-community.mjs";
 import { createVoiceProfileDesigner } from "./src/voice-profile-ai.mjs";
+import { createSiteUsers } from "./src/site-users.mjs";
+import { createPrivateMedia, privateMediaDirectory } from "./src/private-media.mjs";
 import {
   calibratedFinalMinutes,
   matchPlaystationCalibrationRecord,
@@ -78,6 +80,8 @@ const steam = createSteamConnector();
 const metacritic = createMetacriticConnector();
 const port = Number(process.env.PORT || 4173);
 const publicMode = process.env.PUBLIC_MODE === "1" || existsSync(path.join(dataDir, "public-mode"));
+const publicMediaLocalOnly = process.env.PUBLIC_MEDIA_LOCAL_ONLY === "1" || existsSync(path.join(dataDir, "public-media-local-only"));
+const azureRetired = process.env.AZURE_RETIRED === "1" || existsSync(path.join(dataDir, "azure-retired"));
 const platformSyncEnabled = process.env.PLATFORM_SYNC_ENABLED !== "0";
 const voiceEnabled = process.env.VOICE_COMMUNITY_ENABLED === "1" || existsSync(path.join(dataDir, "voice-enabled"));
 const syncRequestQueue = createSyncRequestQueue(process.env.SYNC_REQUEST_FILE);
@@ -99,8 +103,8 @@ if (directMediaOriginValue && !directMediaOrigin) console.warn("DIRECT_MEDIA_ORI
 const mirrorMediaOriginFile = path.join(dataDir, "mirror-media-origin.txt");
 const mirrorMediaOriginValue = String(process.env.MIRROR_MEDIA_ORIGIN || "").trim()
   || (existsSync(mirrorMediaOriginFile) ? readFileSync(mirrorMediaOriginFile, "utf8").trim() : "");
-const mirrorMediaOrigin = optionalHttpsOrigin(mirrorMediaOriginValue);
-if (mirrorMediaOriginValue && !mirrorMediaOrigin) console.warn("MIRROR_MEDIA_ORIGIN 已忽略：必须是有效的 HTTPS Origin");
+const mirrorMediaOrigin = azureRetired ? null : optionalHttpsOrigin(mirrorMediaOriginValue);
+if (!azureRetired && mirrorMediaOriginValue && !mirrorMediaOrigin) console.warn("MIRROR_MEDIA_ORIGIN 已忽略：必须是有效的 HTTPS Origin");
 
 function adminAccess() {
   if (!publicMode) return null;
@@ -357,6 +361,21 @@ function setSecurityHeaders(_req, res, next) {
 
 app.use(setSecurityHeaders);
 app.use(express.json({ limit: "1mb" }));
+const siteUsers = createSiteUsers({
+  dataDirectory: dataDir,
+  adminUsername: admin?.username || "admin",
+  adminLogin: (req, res) => admin ? createAdminSession(req, res) : res.status(503).json({ error: "管理员账号尚未配置" }),
+  adminUser: req => admin && adminAuthenticated(req) ? { username: admin.username, displayName: "管理员", role: "admin", home: "/" } : null,
+  clearAdmin: clearAdminSession
+});
+app.use("/api/user", siteUsers.router);
+const privateMedia = createPrivateMedia({ dataDirectory: dataDir, directory: privateMediaDirectory(dataDir), mediaUser: siteUsers.mediaUser });
+app.use("/api/my-media", privateMedia.router);
+app.get("/my-videos.html", (req, res) => {
+  res.set({ "Cache-Control": "private, no-store", "CDN-Cache-Control": "no-store", Vary: "Cookie", "X-Robots-Tag": "noindex, nofollow" });
+  if (!siteUsers.mediaUser(req)) return res.redirect(302, "/?login=1");
+  return res.sendFile(path.join(root, "public", "my-videos.html"), { cacheControl: false });
+});
 if (voiceEnabled) {
   const aiEnabled = process.env.VOICE_PROFILE_AI_ENABLED === "1" || existsSync(path.join(dataDir, "voice-ai-enabled"));
   const cpaCredentials = createCpaUsageService({ databasePath: process.env.CPA_USAGE_DB });
@@ -374,7 +393,8 @@ app.get("/voice", (_req, res) => res.redirect(302, "/voice.html"));
 app.get("/api/security", (req, res) => res.json({
   publicMode,
   canManage: adminAuthenticated(req),
-  adminAvailable: adminTransportAllowed(req)
+  adminAvailable: adminTransportAllowed(req),
+  user: admin && adminAuthenticated(req) ? { username: admin.username, displayName: "管理员", role: "admin", home: "/" } : siteUsers.mediaUser(req)
 }));
 
 function createAdminSession(req, res) {
@@ -400,9 +420,9 @@ function createAdminSession(req, res) {
   loginAttempts.delete(key);
   const token = randomBytes(32).toString("base64url");
   adminSessions.set(token, Date.now() + sessionLifetime);
-  const secure = req.secure ? "; Secure" : "";
-  res.set("Set-Cookie", `mgv_admin=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${sessionLifetime / 1000}${secure}`);
-  return res.json({ publicMode, canManage: true, adminAvailable: true });
+  siteUsers.clear(req, res);
+  res.cookie("mgv_admin", token, { path: "/", httpOnly: true, sameSite: "strict", secure: req.secure, maxAge: sessionLifetime });
+  return res.json({ publicMode, canManage: true, adminAvailable: true, user: { username: admin.username, displayName: "管理员", role: "admin", home: "/" } });
 }
 app.post("/api/admin/session", createAdminSession);
 
@@ -415,10 +435,13 @@ app.use((req, res, next) => {
   next();
 });
 
-function destroyAdminSession(req, res) {
+function clearAdminSession(req, res) {
   const token = parseCookies(req.get("cookie")).mgv_admin;
   if (token) adminSessions.delete(token);
-  res.set("Set-Cookie", "mgv_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+  res.clearCookie("mgv_admin", { path: "/", httpOnly: true, sameSite: "strict", secure: req.secure });
+}
+function destroyAdminSession(req, res) {
+  clearAdminSession(req, res);
   res.status(204).end();
 }
 app.delete("/api/admin/session", destroyAdminSession);
@@ -1203,10 +1226,10 @@ async function syncMetacritic() {
 const automaticSyncIntervalMs = 60 * 60 * 1000;
 const defaultAzureBackupCommand = path.join(homedir(), "Library", "Application Support", "GameTimeVault", "sync-azure-backup.zsh");
 const defaultAzureRequestPollCommand = path.join(homedir(), "Library", "Application Support", "GameTimeVault", "poll-azure-sync-request.zsh");
-const azureBackupCommand = process.env.AZURE_BACKUP_SYNC_ENABLED === "0"
+const azureBackupCommand = azureRetired || process.env.AZURE_BACKUP_SYNC_ENABLED === "0"
   ? null
   : String(process.env.AZURE_BACKUP_SYNC_COMMAND || (process.platform === "darwin" ? defaultAzureBackupCommand : "")).trim() || null;
-const azureRequestPollCommand = process.env.AZURE_SYNC_REQUEST_POLL_ENABLED === "0"
+const azureRequestPollCommand = azureRetired || process.env.AZURE_SYNC_REQUEST_POLL_ENABLED === "0"
   ? null
   : String(process.env.AZURE_SYNC_REQUEST_POLL_COMMAND || (process.platform === "darwin" ? defaultAzureRequestPollCommand : "")).trim() || null;
 let azureBackupProcess = null;
@@ -1261,10 +1284,10 @@ async function currentHighlightLibrary() {
     ...item, streamUrl: streamUrlFor(storage.directory, item)
   })) : [];
   let manifest = { files: {} };
-  try { manifest = remoteMedia.manifest(); } catch (error) { console.error(error.message); }
+  try { if (!publicMediaLocalOnly) manifest = remoteMedia.manifest(); } catch (error) { console.error(error.message); }
   let baiduHighlights = [];
-  try { baiduHighlights = await baiduStream.highlights(); } catch (error) { console.error(`百度媒体目录读取失败：${error.message || error}`); }
-  const highlights = [...mergeRemoteHighlights(localHighlights, manifest, { remoteEnabled: remoteMedia.isEnabled() }), ...baiduHighlights]
+  try { if (!publicMediaLocalOnly) baiduHighlights = await baiduStream.highlights(); } catch (error) { console.error(`百度媒体目录读取失败：${error.message || error}`); }
+  const highlights = [...mergeRemoteHighlights(localHighlights, manifest, { remoteEnabled: !publicMediaLocalOnly && remoteMedia.isEnabled() }), ...baiduHighlights]
     .sort((a, b) => Number(a.size || 0) - Number(b.size || 0)
       || String(b.modifiedAt || "").localeCompare(String(a.modifiedAt || ""))
       || a.filename.localeCompare(b.filename, "zh-CN"));
@@ -1273,9 +1296,9 @@ async function currentHighlightLibrary() {
     total: highlights.length,
     available,
     customDirectory: storage.custom,
-    remoteEnabled: remoteMedia.isEnabled(),
+    remoteEnabled: !publicMediaLocalOnly && remoteMedia.isEnabled(),
     remoteCount: Object.keys(manifest.files || {}).length,
-    baiduEnabled: baiduStream.isEnabled(),
+    baiduEnabled: !publicMediaLocalOnly && baiduStream.isEnabled(),
     baiduCount: baiduHighlights.length,
     directMediaOrigin,
     mirrorMediaOrigin,
@@ -1302,6 +1325,7 @@ app.put("/api/highlights/category", async (req, res, next) => {
 app.get("/api/highlights/playback", async (req, res) => {
   const filename = String(req.query.filename || "");
   const storageSource = String(req.query.source || "default");
+  if (publicMediaLocalOnly && storageSource === "baidu") return res.status(404).json({ error: "当前公开视频仅从主硬盘读取" });
   if (!isSafeHighlightPath(filename) || !supportedHighlightFormats.includes(path.extname(filename).toLowerCase()) || (storageSource === "baidu" && path.basename(filename) !== filename)) {
     return res.status(400).json({ error: "媒体文件名无效" });
   }
@@ -1318,7 +1342,7 @@ app.get("/api/highlights/playback", async (req, res) => {
   }
 
   try {
-    const remote = await remoteMedia.playback(filename);
+    const remote = publicMediaLocalOnly ? null : await remoteMedia.playback(filename);
     if (remote) return res.json(remote);
   } catch (error) {
     console.error(`远程媒体播放链接生成失败：${error.message || error}`);

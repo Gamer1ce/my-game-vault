@@ -1241,7 +1241,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--yellow); }
 .back-top-footer:disabled, .sync-all-footer:disabled { cursor: wait; opacity: .55; }
 .site-nodes {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   margin-top: 14px;
   border: 1px solid var(--line-strong);
   font-family: "Rajdhani", ui-monospace, monospace;

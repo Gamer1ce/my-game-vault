@@ -15,18 +15,18 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
-  <link rel="modulepreload" href="/app.js?v=20260920-3">
+  <link rel="modulepreload" href="/app.js?v=20260922-1">
   <link rel="modulepreload" href="/playback-health.js?v=20260920-1">
   <link rel="modulepreload" href="/playback-route.js?v=20260919-1">
   <link rel="modulepreload" href="/highlight-gallery.js?v=20260911-1">
   <link rel="modulepreload" href="/hero-sequence.js?v=20260718-1">
   <link rel="modulepreload" href="/birthday-hint.js?v=20260724-1">
-  <link rel="stylesheet" href="/styles.css?v=20260920-4">
+  <link rel="stylesheet" href="/styles.css?v=20260922-1">
 </head>
 <body>
   <div class="signal-overlay" aria-hidden="true"></div>
   <header class="hero">
-    <nav><span class="brand" aria-label="SANCTUARY NEXUS，中枢圣殿"><b>SANCTUARY//NEXUS</b><small>中枢圣殿</small></span><div class="nav-actions"><a class="ghost nav-highlight" href="#highlights">精彩时刻</a><a class="ghost nav-highlight" href="https://gamer1ce.top/ai-usage.html">AI 用量</a><a class="ghost nav-highlight" href="/voice.html">语音频道</a><button class="ghost hidden" id="importButton">导入官方数据</button><button class="ghost hidden" id="adminButton">管理员登录</button></div></nav>
+    <nav><span class="brand" aria-label="SANCTUARY NEXUS，中枢圣殿"><b>SANCTUARY//NEXUS</b><small>中枢圣殿</small></span><div class="nav-actions"><a class="ghost nav-highlight" href="#highlights">精彩时刻</a><a class="ghost nav-highlight" href="https://gamer1ce.top/ai-usage.html">AI 用量</a><a class="ghost nav-highlight" href="/voice.html">语音频道</a><button class="ghost hidden" id="importButton">导入官方数据</button><button class="ghost hidden" id="adminButton">用户登录</button></div></nav>
     <div class="guest-actions" aria-label="留言与点赞">
       <form id="guestbookForm" autocomplete="off" aria-label="发送留言">
         <input name="message" maxlength="72" minlength="2" aria-label="留言内容" placeholder="云中谁寄锦书来？" required>
@@ -153,7 +153,6 @@
     <div class="site-nodes" aria-label="网站访问地址">
       <span class="site-nodes-label">ACCESS NODES</span>
       <a class="site-node site-node-primary" href="https://gamer1ce.top/" target="_blank" rel="noopener noreferrer"><small>主站</small><strong>gamer1ce.top</strong><span>PRIMARY</span></a>
-      <a class="site-node site-node-backup" href="https://azure.gamer1ce.top/" target="_blank" rel="noopener noreferrer"><small>备用站</small><strong>azure.gamer1ce.top</strong><span>AZURE</span></a>
     </div>
   </main>
 
@@ -209,12 +208,12 @@
 
   <dialog id="adminDialog">
     <form id="adminForm">
-      <div class="dialog-head"><h2>解锁管理模式</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
-      <p class="hint">访客只能查看游戏档案。登录后才能导入文件、连接平台、同步或断开数据源。</p>
-      <label>管理员账号<input name="username" autocomplete="username" required maxlength="64" value="admin"></label>
-      <label>管理员密码<input name="password" type="password" autocomplete="current-password" required minlength="16" maxlength="512"></label>
+      <div class="dialog-head"><h2>用户登录</h2><button class="close" type="button" data-close-dialog aria-label="关闭">×</button></div>
+      <p class="hint">登录个人账号，进入自己的视频空间。管理员账号仍可在这里登录并管理网站。语音社区账号独立。</p>
+      <label>用户账号<input name="username" autocomplete="username" required maxlength="64" placeholder="输入你的账号"></label>
+      <label>密码<input name="password" type="password" autocomplete="current-password" required minlength="12" maxlength="512"></label>
       <p class="form-error" id="adminError"></p>
-      <button class="primary wide" type="submit">解锁 8 小时</button>
+      <button class="primary wide" type="submit">登录</button>
     </form>
   </dialog>
 
@@ -244,6 +243,6 @@
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script type="module" src="/app.js?v=20260920-3"></script>
+  <script type="module" src="/app.js?v=20260922-1"></script>
 </body>
 </html>

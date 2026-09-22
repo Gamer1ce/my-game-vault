@@ -22,5 +22,9 @@ aliyun-esa/baidu-media-proxy/.env
 data/backups/
 data/highlights/
 data/highlight-posters/
+data/private-media-posters/
+data/private-highlights-path.txt
+data/azure-retired
+data/public-media-local-only
 data/runtime/
 .DS_Store
