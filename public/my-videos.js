@@ -1,7 +1,9 @@
 import { arrangeHighlightsForPlayback } from "./highlight-gallery.js?v=20260911-1";
-import { attachSegmentedPlayback } from "./segmented-playback.js?v=20260920-2";
+import { createPrivatePlayback } from "./private-playback.js?v=20260923-1";
+import { createBackgroundImagePause } from "./playback-priority.js";
 const $ = selector => document.querySelector(selector);
 let videos = [], visible = 4, playback = null, generation = 0, loading = false;
+const imagePause = createBackgroundImagePause([$("#gallery")]);
 const node = (tag, text, className) => { const value = document.createElement(tag); if (text !== undefined) value.textContent = text; if (className) value.className = className; return value; };
 async function api(url, method = "GET") {
   const response = await fetch(url, { method, credentials: "same-origin", cache: "no-store" });
@@ -24,7 +26,7 @@ function render() {
   if (videos.length) $("#message").textContent = filtered.length ? "" : "没有找到匹配的视频。";
 }
 async function load() {
-  if (loading) return; loading = true; $("#refresh").disabled = true;
+  if (loading || $("#playerDialog").open) return; loading = true; $("#refresh").disabled = true;
   try {
     const result = await api("/api/my-media");
     $("#owner").textContent = `${result.owner}的游戏视频`; document.title = `${result.owner} · 个人视频`;
@@ -39,18 +41,15 @@ async function load() {
 }
 function stopVideo() {
   generation++; const video = $("#video"); video.pause(); playback?.destroy(); playback = null; video.removeAttribute("src"); video.load();
+  imagePause.setActive(false);
 }
 function clearPrivateView() { stopVideo(); videos = []; $("#gallery").replaceChildren(); $("#playerDialog").close(); }
 async function openVideo(item) {
   stopVideo(); const current = generation, video = $("#video");
   $("#videoTitle").textContent = item.title; $("#playerMessage").textContent = ""; $("#playerDialog").showModal();
-  const raw = () => { if (current !== generation) return; playback?.destroy(); playback = null; video.src = item.url; video.load(); video.play().catch(() => { $("#playerMessage").textContent = "点击播放按钮开始观看。"; }); };
-  if (item.streamUrl && /^\/api\/my-media\/streams\/[a-f0-9]{32}\/index\.m3u8$/.test(item.streamUrl)) {
-    try { const attached = await attachSegmentedPlayback(video, item.streamUrl, { active: () => generation === current, onFatal: raw }); if (current !== generation) { attached?.destroy(); return; } playback = attached; video.play().catch(() => {}); }
-    catch { raw(); }
-  } else raw();
+  imagePause.setActive(true);
+  playback = createPrivatePlayback(video, item, { message: text => { if (current === generation) $("#playerMessage").textContent = text; } });
 }
-$("#video").addEventListener("error", () => { $("#playerMessage").textContent = "视频暂时无法播放。请检查硬盘是否在线；登录超过 8 小时后需要重新登录。"; });
 $("#closePlayer").addEventListener("click", () => $("#playerDialog").close());
 $("#playerDialog").addEventListener("close", stopVideo);
 $("#search").addEventListener("input", () => { visible = 4; render(); });

@@ -369,8 +369,11 @@ const siteUsers = createSiteUsers({
   clearAdmin: clearAdminSession
 });
 app.use("/api/user", siteUsers.router);
-const privateMedia = createPrivateMedia({ dataDirectory: dataDir, directory: privateMediaDirectory(dataDir), mediaUser: siteUsers.mediaUser });
+const privateMedia = createPrivateMedia({ dataDirectory: dataDir, directory: privateMediaDirectory(dataDir), mediaUser: siteUsers.mediaUser,
+  directOrigin: directMediaOrigin, allowedOrigins: ["https://gamer1ce.top", "https://game.gamer1ce.top"],
+  playbackSession: siteUsers.playbackSession, sessionActive: siteUsers.playbackSessionActive });
 app.use("/api/my-media", privateMedia.router);
+app.use("/api/private-playback", privateMedia.directRouter);
 app.get("/my-videos.html", (req, res) => {
   res.set({ "Cache-Control": "private, no-store", "CDN-Cache-Control": "no-store", Vary: "Cookie", "X-Robots-Tag": "noindex, nofollow" });
   if (!siteUsers.mediaUser(req)) return res.redirect(302, "/?login=1");

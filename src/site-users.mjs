@@ -78,6 +78,13 @@ export function createSiteUsers({ dataDirectory, databaseFile, now = Date.now, a
   router.delete("/session", wrap((req, res) => { guard(req); clear(req, res); clearAdmin(req, res); res.status(204).end(); }));
   router.use((_req, res) => res.status(404).json({ error: "接口不存在" }));
   return { router, db, mediaUser, clear,
+    playbackSession(req) {
+      const token = parseCookies(req.get("cookie"))[COOKIE];
+      return token && mediaUser(req)?.library === "dai" ? hash(token) : null;
+    },
+    playbackSessionActive(sessionHash) {
+      return Boolean(db.prepare("SELECT 1 FROM site_sessions s JOIN site_users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>? AND u.library='dai'").get(sessionHash, now()));
+    },
     async createUser({ username, displayName, password, library }) {
       username = normalize(username);
       if (!/^[\p{L}\p{N}_-]{3,64}$/u.test(username) || username === normalize(adminUsername) || library !== "dai" || typeof password !== "string" || password.length < 16 || password.length > 128) throw new Error("Invalid account configuration");

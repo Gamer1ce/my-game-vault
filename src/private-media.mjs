@@ -5,6 +5,7 @@ import { isLoopbackHost } from "./security.mjs";
 import { listHighlights, resolveHighlightFile, supportedHighlightVideoFormats } from "./highlights.mjs";
 import { streamUrlFor, resolveStreamAsset } from "./highlight-streams.mjs";
 import { createHighlightPosterService } from "./highlight-posters.mjs";
+import { createPrivateMediaDirect } from "./private-media-direct.mjs";
 
 export function privateMediaDirectory(dataDirectory, environment = process.env) {
   const file = path.join(dataDirectory, "private-highlights-path.txt");
@@ -12,7 +13,7 @@ export function privateMediaDirectory(dataDirectory, environment = process.env) 
   return value && path.isAbsolute(value) && !value.includes("\0") ? path.resolve(value) : null;
 }
 
-export function createPrivateMedia({ dataDirectory, directory, mediaUser, posterService, now = Date.now }) {
+export function createPrivateMedia({ dataDirectory, directory, mediaUser, posterService, now = Date.now, directOrigin = null, allowedOrigins = [], playbackSession = () => null, sessionActive = () => false }) {
   const router = express.Router();
   const posters = posterService || createHighlightPosterService({ cacheDirectory: path.join(dataDirectory, "private-media-posters", "dai") });
   let cache;
@@ -44,6 +45,16 @@ export function createPrivateMedia({ dataDirectory, directory, mediaUser, poster
     if (!directory || !supportedHighlightVideoFormats.includes(path.extname(filename).toLowerCase())) throw new Error("Unavailable");
     return resolveHighlightFile(directory, filename);
   };
+  const direct = createPrivateMediaDirect({ directOrigin, allowedOrigins, sessionActive, resolveVideo, now });
+  router.post("/playback", (req, res) => {
+    const origin = `${req.protocol}://${req.get("host")}`;
+    if (req.get("origin") !== origin || req.get("sec-fetch-site") === "cross-site") return res.sendStatus(403);
+    try {
+      const filename = String(req.body?.filename || "");
+      resolveVideo(filename);
+      res.json({ direct: direct.issue({ origin, session: playbackSession(req), filename }) });
+    } catch { res.sendStatus(404); }
+  });
   router.get("/files/:filename", (req, res) => {
     try {
       const { file } = resolveVideo(req.params.filename);
@@ -66,5 +77,5 @@ export function createPrivateMedia({ dataDirectory, directory, mediaUser, poster
     } catch { res.status(404).end(); }
   });
   router.use((_req, res) => res.status(404).json({ error: "媒体不存在" }));
-  return { router };
+  return { router, directRouter: direct.router };
 }
