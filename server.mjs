@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import { readMediaIndex } from "./src/media-index.mjs";
 import ExcelJS from "exceljs";
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
@@ -1278,14 +1279,25 @@ app.post("/api/sync/all", async (_req, res, next) => {
   }
 });
 
+let publicHighlightSnapshot, publicHighlightRefresh;
 async function currentHighlightLibrary() {
   const power = mediaPower.status();
   const storage = resolveHighlightsDirectory(dataDir);
   let available = false;
   try { available = statSync(storage.directory).isDirectory(); } catch { available = false; }
-  const localHighlights = available ? listHighlights(storage.directory, 5000).map(item => ({
-    ...item, streamUrl: streamUrlFor(storage.directory, item)
-  })) : [];
+  const refresh = () => {
+    if (!publicHighlightRefresh) publicHighlightRefresh = buildHighlightLibrary(storage, available, power).finally(() => { publicHighlightRefresh = null; });
+    return publicHighlightRefresh;
+  };
+  if (publicMediaLocalOnly && publicHighlightSnapshot?.directory === storage.directory
+    && publicHighlightSnapshot.available === available) {
+    if (Date.now() - publicHighlightSnapshot.at >= 10_000) void refresh().catch(error => console.warn(`媒体索引刷新失败：${error.message}`));
+    return { ...publicHighlightSnapshot.value, mediaPower: power };
+  }
+  return refresh();
+}
+async function buildHighlightLibrary(storage, available, power) {
+  const localHighlights = available ? await readMediaIndex(storage.directory, 5000) : [];
   let manifest = { files: {} };
   try { if (!publicMediaLocalOnly) manifest = remoteMedia.manifest(); } catch (error) { console.error(error.message); }
   let baiduHighlights = [];
@@ -1294,7 +1306,7 @@ async function currentHighlightLibrary() {
     .sort((a, b) => Number(a.size || 0) - Number(b.size || 0)
       || String(b.modifiedAt || "").localeCompare(String(a.modifiedAt || ""))
       || a.filename.localeCompare(b.filename, "zh-CN"));
-  return {
+  const value = {
     highlights: classifyHighlights(highlights, { games: listGames.all(), ...highlightCategories.snapshot() }),
     total: highlights.length,
     available,
@@ -1307,6 +1319,8 @@ async function currentHighlightLibrary() {
     mirrorMediaOrigin,
     mediaPower: power
   };
+  if (publicMediaLocalOnly) publicHighlightSnapshot = { directory: storage.directory, available, at: Date.now(), value };
+  return value;
 }
 
 app.get("/api/highlights", async (_req, res, next) => {
@@ -1321,6 +1335,7 @@ app.put("/api/highlights/category", async (req, res, next) => {
     if (!item) return res.status(404).json({ error: "视频已不存在，请刷新媒体库" });
     try { highlightCategories.set(item, req.body.label, req.body.applyToPrefix === true); }
     catch (error) { return res.status(400).json({ error: error.message }); }
+    publicHighlightSnapshot = null;
     res.json({ saved: true });
   } catch (error) { next(error); }
 });

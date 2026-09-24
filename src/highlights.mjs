@@ -67,10 +67,16 @@ export function resolveHighlightFile(directory, filename) {
 
 export function listHighlights(directory, limit = 500) {
   const items = [];
+  let realDirectory;
+  try { realDirectory = realpathSync(directory); } catch { return []; }
   function walk(relativeDirectory = "") {
   let entries;
   try {
-    entries = readdirSync(path.join(directory, relativeDirectory), { withFileTypes: true });
+    const folder = path.join(realDirectory, relativeDirectory);
+    // Validate each parent once, rather than resolving the whole ancestry again
+    // for every file on a slow external drive. File serving still revalidates.
+    if (relativeDirectory && (lstatSync(folder).isSymbolicLink() || realpathSync(folder) !== folder)) return;
+    entries = readdirSync(folder, { withFileTypes: true });
   } catch {
     return;
   }
@@ -83,7 +89,8 @@ export function listHighlights(directory, limit = 500) {
     const type = mediaExtensions.get(extension);
     if (!type) continue;
     try {
-      const { stats } = resolveHighlightFile(directory, filename);
+      const stats = lstatSync(path.join(realDirectory, filename));
+      if (!stats.isFile() || stats.isSymbolicLink()) continue;
       const version = Math.trunc(stats.mtimeMs);
       items.push({
         filename,

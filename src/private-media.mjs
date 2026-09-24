@@ -6,6 +6,7 @@ import { listHighlights, resolveHighlightFile, supportedHighlightVideoFormats } 
 import { streamUrlFor, resolveStreamAsset } from "./highlight-streams.mjs";
 import { createHighlightPosterService } from "./highlight-posters.mjs";
 import { createPrivateMediaDirect } from "./private-media-direct.mjs";
+import { createPrivateMediaUpload } from "./private-media-upload.mjs";
 
 export function privateMediaDirectory(dataDirectory, environment = process.env) {
   const file = path.join(dataDirectory, "private-highlights-path.txt");
@@ -24,6 +25,8 @@ export function createPrivateMedia({ dataDirectory, directory, mediaUser, poster
     if (!user || user.library !== "dai") return res.status(401).json({ error: "请先使用视频账号登录" });
     req.mediaUser = user; next();
   });
+  const uploader = createPrivateMediaUpload({ directory, mediaUser, onComplete: () => { cache = null; }, now });
+  router.use("/uploads", uploader.router);
   router.get("/", (req, res) => {
     let available = false;
     try { available = Boolean(directory && statSync(directory).isDirectory()); } catch {}
@@ -38,7 +41,7 @@ export function createPrivateMedia({ dataDirectory, directory, mediaUser, poster
       });
       cache = { at: now(), videos };
     }
-    res.json({ owner: req.mediaUser.displayName, available, videos: cache.videos });
+    res.json({ owner: req.mediaUser.displayName, available, canUpload: req.mediaUser.username === "戴卓然", videos: cache.videos });
   });
   const sendError = (res, error) => { if (error && !res.headersSent && !["ECONNABORTED", "EPIPE"].includes(error.code)) res.status(error.statusCode === 416 ? 416 : 404).end(); };
   const resolveVideo = filename => {
@@ -77,5 +80,5 @@ export function createPrivateMedia({ dataDirectory, directory, mediaUser, poster
     } catch { res.status(404).end(); }
   });
   router.use((_req, res) => res.status(404).json({ error: "媒体不存在" }));
-  return { router, directRouter: direct.router };
+  return { router, directRouter: direct.router, close: uploader.close };
 }

@@ -50,7 +50,7 @@ services:
       - type: bind
         source: "${GAME_VAULT_PRIVATE_MEDIA_DIR:-/Volumes/游戏视频（戴卓然）}"
         target: /media/private-dai
-        read_only: true
+        read_only: false
       - type: bind
         source: "${MINECRAFT_METRICS_DIR:-/Users/gamer1ce/.local/share/game-vault-minecraft}"
         target: /minecraft-status

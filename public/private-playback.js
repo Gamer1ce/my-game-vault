@@ -15,7 +15,8 @@ export function createPrivatePlayback(video, item, { message, fetchImpl = fetch,
   const request = (url, options = {}) => fetchImpl(url, { credentials: "include", cache: "no-store", ...options, signal: AbortSignal.any([lifetime.signal, ...(options.signal ? [options.signal] : [])]) });
   const fallback = { id: "site", label: "兼容线路", url: new URL(item.url, pageOrigin).href };
   const active = () => !dead;
-  const say = text => { if (active()) message(text); };
+  let previousMessage = "", progressAt = 0;
+  const say = text => { if (active() && text !== previousMessage) { previousMessage = text; message(text); } };
   function resetMedia() {
     clearInterval(timer); transfer?.abort(); transfer = null; segmented?.destroy(); segmented = null;
     video.pause(); video.removeAttribute("src"); video.load();
@@ -48,7 +49,9 @@ export function createPrivatePlayback(video, item, { message, fetchImpl = fetch,
         bytes += value.byteLength;
         if (bytes > PRIVATE_MEMORY_LIMIT || bytes > item.size) { await reader.cancel(); throw new Error("Media size changed"); }
         chunks.push(value); touch();
-        say(`正在缓冲原画 ${Math.min(100, Math.floor(bytes / item.size * 100))}% · ${route.label}`);
+        if (performance.now() - progressAt >= 100 || bytes === item.size) {
+          progressAt = performance.now(); say(`正在缓冲原画 ${Math.min(100, Math.floor(bytes / item.size * 100))}% · ${route.label}`);
+        }
       }
       if (bytes !== item.size) throw new Error("Incomplete media");
       if (!active() || controller.signal.aborted) return;
@@ -102,9 +105,10 @@ export function createPrivatePlayback(video, item, { message, fetchImpl = fetch,
     let chosen = fallback;
     if (direct) {
       const options = { fetchImpl: request, fileSize: item.size, sampleBytes: 256 * 1024, tailSampleBytes: 32 * 1024, timeoutMs: 4000 };
-      const results = await Promise.all([direct, fallback].map(candidate => measurePlaybackCandidate(candidate, options)));
-      const good = results.filter(r => r.ok).sort((a, b) => b.bytesPerSecond - a.bytesPerSecond);
-      if (good.length) chosen = good[0].candidate;
+      // Validate the private direct route without waiting for a slow fallback
+      // probe or making it compete with the video's first bytes.
+      const result = await measurePlaybackCandidate(direct, options);
+      if (result.ok) chosen = direct;
     }
     if (active()) await start(chosen);
   })();
