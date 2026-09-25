@@ -1,5 +1,5 @@
 import express from "express";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { isLoopbackHost } from "./security.mjs";
 import { listHighlights, resolveHighlightFile, supportedHighlightVideoFormats } from "./highlights.mjs";
@@ -41,7 +41,7 @@ export function createPrivateMedia({ dataDirectory, directory, mediaUser, poster
       });
       cache = { at: now(), videos };
     }
-    res.json({ owner: req.mediaUser.displayName, available, canUpload: req.mediaUser.username === "戴卓然", videos: cache.videos });
+    res.json({ owner: req.mediaUser.displayName, available, canUpload: req.mediaUser.username === "戴卓然", canDelete: req.mediaUser.username === "戴卓然", videos: cache.videos });
   });
   const sendError = (res, error) => { if (error && !res.headersSent && !["ECONNABORTED", "EPIPE"].includes(error.code)) res.status(error.statusCode === 416 ? 416 : 404).end(); };
   const resolveVideo = filename => {
@@ -49,6 +49,29 @@ export function createPrivateMedia({ dataDirectory, directory, mediaUser, poster
     return resolveHighlightFile(directory, filename);
   };
   const direct = createPrivateMediaDirect({ directOrigin, allowedOrigins, sessionActive, resolveVideo, now });
+  router.delete("/files/:filename", (req, res) => {
+    if (req.mediaUser.username !== "戴卓然") return res.status(403).json({ error: "只有戴卓然账号可以删除私人视频" });
+    if (req.get("origin") !== `${req.protocol}://${req.get("host")}` || req.get("sec-fetch-site") === "cross-site") {
+      return res.status(403).json({ error: "请在本站个人视频页面操作" });
+    }
+    if (!Number.isSafeInteger(req.body?.size) || typeof req.body?.modifiedAt !== "string") {
+      return res.status(400).json({ error: "缺少视频版本信息，请刷新片库" });
+    }
+    try {
+      const { file, stats } = resolveVideo(req.params.filename);
+      // Do not delete a replacement file based on a stale card or confirmation.
+      if (stats.size !== req.body.size || stats.mtime.toISOString() !== req.body.modifiedAt) {
+        return res.status(409).json({ error: "视频已发生变化，请刷新片库后重新确认" });
+      }
+      // No asynchronous gap between path/version checks and deleting this one file.
+      unlinkSync(file);
+      cache = null;
+      res.status(204).end();
+    } catch (error) {
+      if (["EACCES", "EPERM", "EROFS", "EBUSY", "EIO"].includes(error.code)) return res.status(503).json({ error: "硬盘暂时无法删除文件，请检查连接和写入权限" });
+      res.status(404).json({ error: "视频不存在或路径无效，请刷新片库" });
+    }
+  });
   router.post("/playback", (req, res) => {
     const origin = `${req.protocol}://${req.get("host")}`;
     if (req.get("origin") !== origin || req.get("sec-fetch-site") === "cross-site") return res.sendStatus(403);
