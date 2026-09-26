@@ -1,7 +1,7 @@
 import { playableBuffer, averageMediaBitrate, droppedFrameRatio } from "./playback-health.js?v=20260920-1";
-import { createAdaptiveBuffering } from "./adaptive-buffer.js?v=20260926-1";
+import { createAdaptiveBuffering } from "./adaptive-buffer.js?v=20260926-3";
 import { createPlaybackPriority, createBackgroundImagePause, isBackgroundRead } from "./playback-priority.js?v=20260920-1";
-import { attachSegmentedPlayback, segmentedUrl } from "./segmented-playback.js?v=20260926-2";
+import { attachSegmentedPlayback, segmentedUrl } from "./segmented-playback.js?v=20260926-3";
 import {
   localPlaybackCandidates,
   playbackCandidates,

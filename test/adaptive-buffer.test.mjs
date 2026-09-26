@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {createAdaptiveBuffering} from "../public/adaptive-buffer.js";
+import {createAdaptiveBuffering, startupBufferReady} from "../public/adaptive-buffer.js";
 
 function setup({managed=true}={}) {
   let time=0,tick,live=true;const events=new Map(),states=[];
@@ -47,4 +47,30 @@ test("native paused-buffer caps and complete lack of data cannot deadlock",async
 test("slow but progressing HLS segments are not mistaken for a capped native buffer",()=>{
   const p=setup();p.starve();p.video.end=7;p.video.networkState=1;p.advance(1000);p.advance(12000);
   assert.equal(p.video.playCalls,0);p.close();
+});
+
+test("a paused native loader reporting LOADING cannot impose repeated 45-second waits", async () => {
+  const p = setup({managed:false}); p.starve(); p.video.end = 7; p.advance(1000);
+  p.advance(4000); await Promise.resolve();
+  assert.equal(p.video.networkState, 2); assert.equal(p.video.playCalls, 1);
+  p.video.end = p.video.currentTime; p.starve(); p.advance(50000);
+  assert.equal(p.video.pauseCalls, 1, "capped browser must not be forced into the same refill loop");
+  p.video.emit("emptied"); p.video.emit("playing"); p.starve();
+  assert.equal(p.video.pauseCalls, 2, "new source can be evaluated independently"); p.close();
+});
+
+test("MMS endstreaming stops futile paused refill, while an active stream retains its buffer target", async () => {
+  const p = setup(); p.starve(); p.video.end = 7; p.advance(1000);
+  p.video.dataset.bufferSuspended = "true"; p.advance(4000); await Promise.resolve();
+  assert.equal(p.video.playCalls, 1); p.close();
+  const q = setup(); q.starve(); q.video.end = 7; q.advance(1000); q.advance(45000);
+  assert.equal(q.video.playCalls, 0, "elapsed time alone must not restart a 2-second stutter"); q.close();
+});
+
+test("private native startup does not wait 20 seconds for an impossible 12-second buffer", () => {
+  assert.equal(startupBufferReady({ahead:2,remaining:300,idleMs:4000,controlled:false}), true);
+  assert.equal(startupBufferReady({ahead:2,remaining:300,idleMs:3000,controlled:false}), false);
+  assert.equal(startupBufferReady({ahead:2,remaining:300,idleMs:20000,controlled:true}), false);
+  assert.equal(startupBufferReady({ahead:2,remaining:300,idleMs:4000,controlled:true,suspended:true}), true);
+  assert.equal(startupBufferReady({ahead:12,remaining:300,idleMs:0,controlled:true}), true);
 });

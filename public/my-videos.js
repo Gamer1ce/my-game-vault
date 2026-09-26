@@ -1,5 +1,5 @@
 import { arrangeHighlightsForPlayback } from "./highlight-gallery.js?v=20260911-1";
-import { createPrivatePlayback } from "./private-playback.js?v=20260926-2";
+import { createPrivatePlayback } from "./private-playback.js?v=20260926-3";
 import { createBackgroundImagePause } from "./playback-priority.js";
 import { createPrivateUploader } from "./private-upload.js?v=20260924-2";
 const $ = selector => document.querySelector(selector);

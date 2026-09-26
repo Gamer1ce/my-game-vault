@@ -6,7 +6,7 @@ export const SEGMENT_BUFFER_CONFIG = Object.freeze({
   // Same-origin packaged worker: no blob worker or broader script CSP needed.
   enableWorker: true,
   workerPath: "/vendor/hls.worker-1.7.3.js",
-  preferManagedMediaSource: true,
+  preferManagedMediaSource: false,
   lowLatencyMode: false
 });
 
@@ -34,7 +34,16 @@ export async function attachSegmentedPlayback(video, url, {
         });
       }
     } : {}) });
-    let destroyed = false;
+    let destroyed = false, source, onStart, onEnd;
+    if (Hls.Events.MEDIA_ATTACHED) hls.on(Hls.Events.MEDIA_ATTACHED, (_event, data) => {
+      source = data.mediaSource;
+      if (!source || !("streaming" in source)) return;
+      onStart = () => { video.dataset.bufferSuspended = "false"; };
+      onEnd = () => { video.dataset.bufferSuspended = "true"; };
+      source.addEventListener("startstreaming", onStart);
+      source.addEventListener("endstreaming", onEnd);
+      video.dataset.bufferSuspended = String(!source.streaming);
+    });
     hls.on(Hls.Events.ERROR, (_event, data) => {
       if (data.fatal && !destroyed && active()) onFatal?.(data.details);
     });
@@ -51,7 +60,12 @@ export async function attachSegmentedPlayback(video, url, {
     }
     return {
       mode: "managed",
-      destroy() { destroyed = true; delete video.dataset.managedStream; hls.destroy(); }
+      destroy() {
+        destroyed = true;
+        if (onStart) source.removeEventListener("startstreaming", onStart);
+        if (onEnd) source.removeEventListener("endstreaming", onEnd);
+        delete video.dataset.bufferSuspended; delete video.dataset.managedStream; hls.destroy();
+      }
     };
   }
   video.disableRemotePlayback = false;

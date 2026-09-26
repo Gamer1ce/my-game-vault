@@ -1,6 +1,6 @@
 import { measurePlaybackCandidate } from "./playback-route.js?v=20260926-2";
-import { attachSegmentedPlayback } from "./segmented-playback.js?v=20260926-2";
-import { createAdaptiveBuffering } from "./adaptive-buffer.js?v=20260926-1";
+import { attachSegmentedPlayback } from "./segmented-playback.js?v=20260926-3";
+import { createAdaptiveBuffering, startupBufferReady } from "./adaptive-buffer.js?v=20260926-3";
 
 export const PRIVATE_MEMORY_LIMIT = 96 * 1024 * 1024;
 export function memoryBufferEligible(size) { return Number.isSafeInteger(size) && size > 0 && size <= PRIVATE_MEMORY_LIMIT; }
@@ -83,7 +83,7 @@ export function createPrivatePlayback(video, item, { message, fetchImpl = fetch,
       const bufferedEnd = video.currentTime + ahead;
       if (bufferedEnd > lastBufferedEnd + 0.05) lastAdvance = performance.now();
       lastBufferedEnd = bufferedEnd;
-      if (starting && (ahead >= Math.min(12, remaining) - 0.2 || (performance.now() - began > 20000 && ahead > 1))) { starting = false; void play(); }
+      if (starting && startupBufferReady({ ahead, remaining, idleMs: performance.now() - lastAdvance, controlled: video.dataset?.managedStream === "true", suspended: video.dataset?.bufferSuspended === "true" })) { starting = false; void play(); }
       else if (starting) say(`正在缓冲原画 ${Math.floor(ahead)} 秒 · ${route.label}`);
       if (video.currentTime > lastTime + 0.1) { lastTime = video.currentTime; lastAdvance = performance.now(); }
       if (!video.seeking && !recovery.recovering && (starting || (!video.paused && !video.ended)) && ahead < 0.5 && performance.now() - lastAdvance > 30000) { clearInterval(timer); void failover(); }

@@ -2,6 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { attachSegmentedPlayback, SEGMENT_BUFFER_CONFIG } from "../public/segmented-playback.js";
 
+test("MMS browser streaming suspension is observable and its listeners are removed on close", async () => {
+  let hls; const callbacks = new Map(), listeners = new Map();
+  class Hls {
+    static Events = { ERROR: "error", MEDIA_ATTACHED: "attached" }; static isSupported() { return true; }
+    constructor(config) { hls = this; assert.equal(config.preferManagedMediaSource, false); }
+    on(event, fn) { callbacks.set(event, fn); } loadSource() {} attachMedia() {} destroy() {}
+  }
+  const source = { streaming: true, addEventListener: (n, f) => listeners.set(n, f), removeEventListener: n => listeners.delete(n) };
+  const video = {dataset:{}};
+  const controller = await attachSegmentedPlayback(video, "/sample.m3u8", { loadLibrary: async () => ({default:Hls}) });
+  callbacks.get("attached")("attached", {mediaSource:source}); assert.equal(video.dataset.bufferSuspended, "false");
+  listeners.get("endstreaming")(); assert.equal(video.dataset.bufferSuspended, "true");
+  listeners.get("startstreaming")(); assert.equal(video.dataset.bufferSuspended, "false");
+  controller.destroy(); assert.equal(listeners.size, 0); assert.equal(video.dataset.bufferSuspended, undefined);
+});
+
 test("large fragment byte progress prevents treating an in-flight segment as a dead route", async () => {
   let instance, listener, active = true; const received = [];
   class Hls {
