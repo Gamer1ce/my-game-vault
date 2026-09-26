@@ -1,11 +1,12 @@
 import { playableBuffer, averageMediaBitrate, droppedFrameRatio } from "./playback-health.js?v=20260920-1";
+import { createAdaptiveBuffering } from "./adaptive-buffer.js?v=20260926-1";
 import { createPlaybackPriority, createBackgroundImagePause, isBackgroundRead } from "./playback-priority.js?v=20260920-1";
-import { attachSegmentedPlayback, segmentedUrl } from "./segmented-playback.js?v=20260920-2";
+import { attachSegmentedPlayback, segmentedUrl } from "./segmented-playback.js?v=20260926-2";
 import {
   localPlaybackCandidates,
   playbackCandidates,
   rankPlaybackCandidates
-} from "./playback-route.js?v=20260919-1";
+} from "./playback-route.js?v=20260926-2";
 import {
   arrangeHighlightsForPlayback,
   canUseDirectLocalPlayback,
@@ -638,12 +639,16 @@ async function loadHighlights({ preserveView = false } = {}) {
 }
 
 let highlightPlaybackRequest = 0;
+let highlightRouteController = null;
 let highlightBufferTimer = null;
 let highlightStreamController = null;
+let highlightRecoveryController = null;
 
 function stopHighlightBufferTimer() {
   if (highlightBufferTimer) clearInterval(highlightBufferTimer);
   highlightBufferTimer = null;
+  highlightRecoveryController?.destroy();
+  highlightRecoveryController = null;
   highlightStreamController?.destroy();
   highlightStreamController = null;
 }
@@ -708,6 +713,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     waiting: false,
     stalled: false,
     lastBufferedEnd: 0,
+    lastTime: 0,
     lastProgressAt: performance.now()
   };
   let activePlaybackUrl = playbackUrl;
@@ -716,6 +722,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   let sourceGeneration = 0;
 
   const setSource = async (url) => {
+    highlightRecoveryController?.reset();
     const generation = ++sourceGeneration;
     highlightStreamController?.destroy();
     highlightStreamController = null;
@@ -741,7 +748,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
     };
     if (stream) {
       try {
-        const controller = await attachSegmentedPlayback(video, stream, { active, onFatal: useOriginal });
+        const controller = await attachSegmentedPlayback(video, stream, { active, onFatal: useOriginal, onProgress: () => { sample.lastProgressAt = performance.now(); } });
         if (!active()) { controller?.destroy(); return; }
         highlightStreamController = controller;
         return;
@@ -775,6 +782,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
         sample.waiting = false;
         sample.stalled = false;
         sample.lastBufferedEnd = 0;
+        sample.lastTime = 0;
         sample.lastProgressAt = performance.now();
         sample.hasPlayed = false;
         sample.recovering = false;
@@ -788,7 +796,7 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
 
   const switchToFallback = (message) => {
     const resumeAt = Math.max(0, Number(video.currentTime || 0));
-    const resumePlaying = sample.playing && !video.ended;
+    const resumePlaying = (sample.playing || sample.requestedAt !== null) && !video.ended;
     const fallback = nextFallback();
     if (!fallback) return false;
     pendingResume = { resumeAt, resumePlaying };
@@ -862,20 +870,32 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
 
   const update = () => {
     if (request !== highlightPlaybackRequest || !video.isConnected) return;
+    const now = performance.now();
+    const end = bufferedEndAtCurrentTime(video);
+    if (video.currentTime > sample.lastTime + 0.1 || end > sample.lastBufferedEnd + 0.1) sample.lastProgressAt = now;
+    sample.lastTime = video.currentTime;
+    sample.lastBufferedEnd = end;
+    // Only abandon a genuinely stuck, requested stream; never switch on a
+    // brief underrun, manual pause, ongoing seek or a full decoder buffer.
+    if (!sample.recovering && sample.waiting && sample.requestedAt !== null && !video.seeking && !video.ended
+      && playableBuffer(video) < 0.5 && now - Math.max(sample.lastProgressAt, sample.requestedAt) >= 30000) {
+      if (switchToFallback("当前线路长时间没有加载进展")) return;
+    }
     details.hidden = !state.security.canManage;
     if (details.hidden) details.open = false;
     if (!details.hidden && details.open) updateDiagnostics();
     const error = sample.terminalError || sample.playError;
     const pending = sample.waiting || sample.requestedAt !== null;
     const retryable = pending && sample.requestedAt !== null && performance.now() - sample.requestedAt >= STARTUP_WAIT_MS;
-    const message = error ? "播放未能继续，请重试或换条线路。"
+    const message = sample.recovering ? `连续缓冲中断，先缓存原画 ${Math.floor(playableBuffer(video))}/${Math.ceil(sample.recoveryTarget)} 秒后继续…`
+      : error ? "播放未能继续，请重试或换条线路。"
       : retryable ? "连接较慢，可以重试。"
       : pending ? "正在缓冲…"
       : sample.hasPlayed && video.paused && !video.ended ? "已暂停" : "";
     if (brief.textContent !== message) brief.textContent = message;
-    bufferedPlay.hidden = !error && !retryable && (pending || sample.hasPlayed);
+    bufferedPlay.hidden = !sample.recovering && !error && !retryable && (pending || sample.hasPlayed);
     if (!bufferedPlay.hidden) {
-      bufferedPlay.textContent = error || retryable ? "重试" : "播放";
+      bufferedPlay.textContent = sample.recovering ? "立即播放" : error || retryable ? "重试" : "播放";
       bufferedPlay.disabled = false;
     }
     panel.hidden = details.hidden && !message && bufferedPlay.hidden && routeNext.hidden;
@@ -920,7 +940,8 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   video.addEventListener("ended", () => { sample.recovering = false; sample.playing = false; sample.waiting = false; sample.requestedAt = null; update(); });
   video.addEventListener("seeking", () => {
     sample.seekAt = performance.now();
-    sample.lastBufferedEnd = playableBuffer(video);
+    sample.lastBufferedEnd = bufferedEndAtCurrentTime(video);
+    sample.lastTime = video.currentTime;
     sample.lastProgressAt = performance.now();
     sample.stalled = false;
     update();
@@ -937,6 +958,18 @@ function mountBufferedVideo(viewer, video, item, playback, playbackUrl, request)
   });
   viewer.replaceChildren(video, panel);
   stopHighlightBufferTimer();
+  highlightRecoveryController = createAdaptiveBuffering(video, {
+    active: () => request === highlightPlaybackRequest && video.isConnected,
+    schedule: fn => setInterval(fn, 400), unschedule: clearInterval,
+    onState: recovery => {
+      sample.recovering = recovery.recovering; sample.recoveryTarget = recovery.target;
+      if (recovery.reason === "manual") {
+        sample.playError = "暂时没有足够的可播放缓存，请点击播放重试。";
+        sample.playing = false; sample.waiting = false; sample.requestedAt = null;
+      }
+      update();
+    }
+  });
   panel.querySelector(".highlight-buffer-copy strong").textContent = "原画播放缓冲";
   panel.style.setProperty("--buffer-target", "100%");
   highlightBufferTimer = setInterval(update, 1000);
@@ -949,6 +982,9 @@ async function openHighlight(index) {
   const url = safeHighlightUrl(item?.url);
   if (!item || (item.type !== "video" && !url)) return;
   const request = ++highlightPlaybackRequest;
+  highlightRouteController?.abort();
+  highlightRouteController = new AbortController();
+  const routeSignal = highlightRouteController.signal;
   stopHighlightBufferTimer();
   setVideoPriority(item.type === "video");
   $("#highlightDialogTitle").textContent = item.title || item.filename || "精彩时刻";
@@ -987,7 +1023,7 @@ async function openHighlight(index) {
     if (candidates.length > 1) {
       viewer.innerHTML = `<div class="highlight-loading"><strong>正在准备播放…</strong><span>正在选择可用线路</span></div>`;
     }
-    const rankedCandidates = await rankPlaybackCandidates(candidates, { fileSize: item.size });
+    const rankedCandidates = await rankPlaybackCandidates(candidates, { fileSize: item.size, signal: routeSignal, preferDirect: true });
     if (request !== highlightPlaybackRequest || !$("#highlightDialog").open) return;
     const selected = rankedCandidates[0] || candidates[0];
     const playbackUrl = selected?.url || safePlaybackUrl(playback.url);
@@ -1135,7 +1171,7 @@ $("#highlightCollapse").addEventListener("click", () => {
   renderHighlights();
   requestAnimationFrame(() => $("#highlights").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" }));
 });
-$("#highlightDialog").addEventListener("close", () => { highlightPlaybackRequest += 1; stopHighlightBufferTimer(); const video = $("#highlightViewer video"); if (video) { video.pause(); video.removeAttribute("src"); video.load(); } $("#highlightViewer").replaceChildren(); setVideoPriority(false); });
+$("#highlightDialog").addEventListener("close", () => { highlightPlaybackRequest += 1; highlightRouteController?.abort(); highlightRouteController = null; stopHighlightBufferTimer(); const video = $("#highlightViewer video"); if (video) { video.pause(); video.removeAttribute("src"); video.load(); } $("#highlightViewer").replaceChildren(); setVideoPriority(false); });
 $("#mediaPowerButton").addEventListener("click", async () => {
   const button = $("#mediaPowerButton");
   const nextMode = state.mediaPower.mode === "sleeping" ? "running" : "sleeping";

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import * as health from "../public/playback-health.js";
+import { createAdaptiveBuffering } from "../public/adaptive-buffer.js";
 import { playbackStartupState, STARTUP_WAIT_MS } from "../public/playback-startup.js";
 
 test("only contiguous, playable TimeRanges count, not a future range across a seek gap", () => {
@@ -31,13 +32,14 @@ test("browser preload suspension is distinct from a network timeout", () => {
   assert.equal(health.recoveryState({ ...state, ahead: 12 }), "ready");
 });
 
-function player({ admin = false } = {}) {
+function player({ admin = false, fallback = false } = {}) {
   let now = 0;
-  let tick;
+  const timers = new Set();
   class Element {
     constructor() { this.listeners = {}; this.nodes = {}; this.style = { setProperty() {} }; this.classList = { add() {}, remove() {} }; }
     querySelector(selector) { return this.nodes[selector] ||= new Element(); }
     addEventListener(name, callback) { (this.listeners[name] ||= []).push(callback); }
+    removeEventListener(name, callback) { this.listeners[name] = (this.listeners[name] || []).filter(fn => fn !== callback); }
     emit(name) { for (const callback of this.listeners[name] || []) callback(); }
     append(...children) { this.children = children; }
   }
@@ -54,12 +56,12 @@ function player({ admin = false } = {}) {
   const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
   const code = app.slice(app.indexOf("let highlightPlaybackRequest = 0;"), app.indexOf("async function openHighlight(index)"));
   const context = vm.createContext({
-    ...health, playbackStartupState, STARTUP_WAIT_MS, segmentedUrl: () => null, state: { security: { canManage: admin } },
+    ...health, createAdaptiveBuffering: (video, options) => createAdaptiveBuffering(video, {...options, now: () => now}), playbackStartupState, STARTUP_WAIT_MS, segmentedUrl: () => null, state: { security: { canManage: admin } },
     document: { createElement: () => new Element() }, performance: { now: () => now },
-    setInterval: callback => { tick = callback; return 1; }, clearInterval() {},
-    video, viewer
+    setInterval: callback => { timers.add(callback); return callback; }, clearInterval(callback) { timers.delete(callback); },
+    video, viewer, fallback
   });
-  vm.runInContext(code + '\nmountBufferedVideo(viewer, video, {size: 3413552131}, {source: "local"}, "https://example.org/video.mp4", 0);', context);
+  vm.runInContext(code + '\nmountBufferedVideo(viewer, video, {size: 3413552131}, {source: "local", fallbackCandidates: fallback ? [{url:"https://fallback.example/video.mp4"}] : []}, "https://example.org/video.mp4", 0);', context);
   // Exercise the controlled buffer path; native-only playback has its own test.
   video.dataset.managedStream = "true";
   const panel = viewer.children[1];
@@ -67,7 +69,7 @@ function player({ admin = false } = {}) {
     video, panel,
     button: panel.querySelector(".highlight-buffer-play"),
     status: panel.querySelector(".highlight-buffer-copy span"),
-    advance(ms) { now += ms; tick(); }
+    advance(ms) { now += ms; for (const fn of timers) fn(); }
   };
 }
 
@@ -153,4 +155,42 @@ test("playback never counts speculative fetches as playable cache", () => {
   const app = readFileSync(new URL("../public/app.js", import.meta.url), "utf8");
   assert.doesNotMatch(app, /prefetchPlaybackRange|prefetchedThrough|effectiveAhead/);
   assert.match(app, /video\.preload = "auto"/);
+});
+
+test("真正无进展的播放自动换线且恢复原播放位置", async () => {
+  const p = player({ fallback: true });
+  p.button.emit("click"); p.video.currentTime = 5; p.video.emit("waiting");
+  p.advance(29000);
+  assert.equal(p.video.loadCalls, 1);
+  p.advance(1000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(p.video.src, "https://fallback.example/video.mp4");
+  p.video.currentTime = 0; p.video.emit("loadedmetadata");
+  assert.equal(p.video.currentTime, 5);
+  assert.equal(p.video.playCalls, 2);
+});
+
+test("暂停、跳转或可播放缓存充足时不会因等待而换线", () => {
+  for (const mode of ["paused", "seeking", "buffered"]) {
+    const p = player({ fallback: true });
+    p.button.emit("click"); p.video.currentTime = 5; p.video.emit("waiting");
+    if (mode === "paused") p.video.pause();
+    if (mode === "seeking") p.video.seeking = true;
+    if (mode === "buffered") { p.video.end = 20; p.video.emit("progress"); }
+    p.advance(40000);
+    assert.equal(p.video.loadCalls, 1, mode);
+  }
+});
+
+test("反复卡顿时展示原画预缓冲，并保留立即播放选择", async () => {
+  const p = player({fallback:true});
+  p.button.emit("click"); p.video.currentTime=5; p.video.emit("waiting");
+  p.video.emit("playing"); p.video.emit("waiting");
+  assert.equal(p.video.paused,true);
+  assert.match(p.panel.querySelector(".highlight-player-status").textContent,/先缓存原画/);
+  assert.equal(p.button.textContent,"立即播放");
+  p.advance(31000);assert.equal(p.video.loadCalls,1);
+  p.video.end=21;p.advance(1000);await Promise.resolve();
+  assert.equal(p.video.paused,false);assert.equal(p.video.playCalls,2);
+  assert.equal(p.panel.querySelector(".highlight-player-status").textContent,"");
 });

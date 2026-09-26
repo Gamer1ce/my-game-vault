@@ -18,7 +18,7 @@ export function segmentedUrl(originalUrl, streamPath) {
 }
 
 export async function attachSegmentedPlayback(video, url, {
-  onFatal, active = () => true,
+  onFatal, onProgress, active = () => true,
   loadLibrary = () => import("./vendor/hls.light-1.7.3.min.mjs")
 } = {}) {
   const { default: Hls } = await loadLibrary();
@@ -26,7 +26,14 @@ export async function attachSegmentedPlayback(video, url, {
   // Required by iPhone ManagedMediaSource unless an AirPlay alternative exists.
   video.disableRemotePlayback = true;
   if (Hls.isSupported()) {
-    const hls = new Hls({ ...SEGMENT_BUFFER_CONFIG });
+    const hls = new Hls({ ...SEGMENT_BUFFER_CONFIG, ...(onProgress ? {
+      xhrSetup(xhr) {
+        let received = 0;
+        xhr.addEventListener("progress", event => {
+          if (active() && event.loaded > received) { received = event.loaded; onProgress(received); }
+        });
+      }
+    } : {}) });
     let destroyed = false;
     hls.on(Hls.Events.ERROR, (_event, data) => {
       if (data.fatal && !destroyed && active()) onFatal?.(data.details);

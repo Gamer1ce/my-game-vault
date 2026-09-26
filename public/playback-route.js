@@ -1,5 +1,6 @@
 export const PLAYBACK_ROUTE_SAMPLE_BYTES = 512 * 1024;
 export const PLAYBACK_ROUTE_TAIL_SAMPLE_BYTES = 64 * 1024;
+export const LARGE_PLAYBACK_SAMPLE_BYTES = 2 * 1024 * 1024;
 
 export function playbackCandidates(playback) {
   const candidates = Array.isArray(playback?.candidates) ? playback.candidates : [];
@@ -43,12 +44,15 @@ export function localPlaybackCandidates(localUrl, { pageOrigin, directOrigin, mi
 
 export async function measurePlaybackCandidate(candidate, {
   fetchImpl = fetch,
-  sampleBytes = PLAYBACK_ROUTE_SAMPLE_BYTES,
+  sampleBytes,
   tailSampleBytes = PLAYBACK_ROUTE_TAIL_SAMPLE_BYTES,
   fileSize = 0,
-  timeoutMs = 8000
+  timeoutMs = 8000,
+  signal
 } = {}) {
+  sampleBytes ??= Number(fileSize) >= 1024 ** 3 ? LARGE_PLAYBACK_SAMPLE_BYTES : PLAYBACK_ROUTE_SAMPLE_BYTES;
   const controller = new AbortController();
+  const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const startedAt = performance.now();
   let received = 0;
@@ -57,9 +61,13 @@ export async function measurePlaybackCandidate(candidate, {
     const response = await fetchImpl(candidate.url, {
       headers: { Range: `bytes=${startByte}-${endByte}` },
       cache: "no-store",
-      signal: controller.signal
+      signal: requestSignal
     });
-    if (response.status !== 206) throw new Error(`Range HTTP ${response.status}`);
+    if (response.status !== 206) {
+      // A server ignoring Range could otherwise keep sending the entire movie.
+      await response.body?.cancel?.().catch(() => {});
+      throw new Error(`Range HTTP ${response.status}`);
+    }
     const contentRange = response.headers?.get?.("Content-Range") || "";
     const rangeMatch = contentRange.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
     if (!rangeMatch || Number(rangeMatch[1]) !== startByte || Number(rangeMatch[2]) !== endByte) {
@@ -111,6 +119,19 @@ export async function measurePlaybackCandidate(candidate, {
 export async function rankPlaybackCandidates(candidates, options = {}) {
   if (candidates.length <= 1) return [...candidates];
   const measure = options.measureImpl || measurePlaybackCandidate;
+  // A healthy home route must not wait for a slow overseas relay probe or
+  // lose to a tiny cached CDN sample. Keep other routes as explicit fallbacks.
+  if (options.preferDirect) {
+    const direct = candidates.find(candidate => candidate.id === "home-ipv6-direct");
+    if (direct) {
+      const result = await measure(direct, { ...options, sampleBytes: 512 * 1024 });
+      if (options.signal?.aborted) return [];
+      if (result.ok) return [{ ...direct, measuredBytesPerSecond: result.bytesPerSecond, tailVerified: result.tailVerified === true }, ...candidates.filter(candidate => candidate !== direct)];
+      // Do not spend another timeout measuring the already failed route.
+      const others = candidates.filter(candidate => candidate !== direct);
+      return [...await rankPlaybackCandidates(others, { ...options, preferDirect: false }), direct];
+    }
+  }
   const results = await Promise.all(candidates.map((candidate) => measure(candidate, options)));
   const successful = results.filter((result) => result.ok)
     .sort((left, right) => right.bytesPerSecond - left.bytesPerSecond);

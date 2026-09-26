@@ -2,6 +2,22 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { attachSegmentedPlayback, SEGMENT_BUFFER_CONFIG } from "../public/segmented-playback.js";
 
+test("large fragment byte progress prevents treating an in-flight segment as a dead route", async () => {
+  let instance, listener, active = true; const received = [];
+  class Hls {
+    static Events = { ERROR: "error" }; static isSupported() { return true; }
+    constructor(config) { this.config = config; instance = this; }
+    on() {} loadSource() {} attachMedia() {} destroy() {}
+  }
+  const controller = await attachSegmentedPlayback({ dataset: {} }, "/sample.m3u8", {
+    loadLibrary: async () => ({ default: Hls }), active: () => active, onProgress: bytes => received.push(bytes)
+  });
+  instance.config.xhrSetup({ addEventListener: (event, callback) => { assert.equal(event, "progress"); listener = callback; } });
+  listener({ loaded: 1024 }); listener({ loaded: 1024 }); listener({ loaded: 4096 });
+  active = false; listener({ loaded: 8192 });
+  assert.deepEqual(received, [1024, 4096]); controller.destroy();
+});
+
 test("controlled segments attach with bounded buffers and cleanly release the media source", async () => {
   let instance;
   class Hls {

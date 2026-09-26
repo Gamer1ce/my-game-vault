@@ -10,6 +10,28 @@ import {
   selectPlaybackCandidate
 } from "../public/playback-route.js";
 
+test("已验证的家庭直连不等待兼容线路测速，也不被 CDN 小样本抢走", async () => {
+  const candidates = [{ id: "home-ipv6-direct", url: "https://direct.example/video" }, { id: "site-proxy", url: "https://relay.example/video" }];
+  const measured = [];
+  const result = await rankPlaybackCandidates(candidates, { preferDirect: true, measureImpl: async candidate => {
+    measured.push(candidate.id);
+    if (candidate.id === "site-proxy") throw new Error("slow relay must not be requested");
+    return { ok: true, bytesPerSecond: 5_000_000, tailVerified: true };
+  } });
+  assert.deepEqual(measured, ["home-ipv6-direct"]);
+  assert.deepEqual(result.map(x => x.id), ["home-ipv6-direct", "site-proxy"]);
+  assert.equal(result[0].tailVerified, true);
+});
+
+test("直连失败立即使用唯一兼容入口，取消选路后不再开始播放", async () => {
+  const candidates = [{ id: "home-ipv6-direct", url: "https://direct.example/video" }, { id: "site-proxy", url: "https://relay.example/video" }];
+  let calls = 0;
+  const result = await rankPlaybackCandidates(candidates, { preferDirect: true, measureImpl: async () => { calls++; return { ok: false }; } });
+  assert.equal(calls, 1); assert.equal(result[0].id, "site-proxy");
+  const controller = new AbortController();
+  assert.deepEqual(await rankPlaybackCandidates(candidates, { preferDirect: true, signal: controller.signal, measureImpl: async () => { controller.abort(); return { ok: true }; } }), []);
+});
+
 test("线路检测使用有限的连通性样本，不声称测量持续速度", () => {
   assert.equal(PLAYBACK_ROUTE_SAMPLE_BYTES, 512 * 1024);
   assert.equal(PLAYBACK_ROUTE_TAIL_SAMPLE_BYTES, 64 * 1024);
@@ -147,4 +169,42 @@ test("Range 响应头正确但正文被截断时不可作为成功测速", async
   });
   assert.equal(result.ok, false);
   assert.match(result.error, /incomplete/);
+});
+
+test("大文件使用更长的有限样本，仍检查尾部且不整片下载", async () => {
+  const ranges = [];
+  const size = 4 * 1024 ** 3;
+  const result = await measurePlaybackCandidate({ url: "https://example.org/large.mp4" }, {
+    fileSize: size,
+    fetchImpl: async (_url, { headers }) => {
+      const [start, end] = headers.Range.slice(6).split("-").map(Number);
+      ranges.push([start, end]);
+      return new Response(new Uint8Array(end - start + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${size}` } });
+    }
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(ranges, [[0, 2 * 1024 ** 2 - 1], [size - PLAYBACK_ROUTE_TAIL_SAMPLE_BYTES, size - 1]]);
+});
+
+test("忽略 Range 的响应立即取消，防止后台下载整部大视频", async () => {
+  let cancelled = false;
+  const result = await measurePlaybackCandidate({ url: "https://example.org/video" }, {
+    fetchImpl: async () => new Response(new ReadableStream({ cancel() { cancelled = true; } }), { status: 200 })
+  });
+  assert.equal(result.ok, false);
+  assert.equal(cancelled, true);
+});
+
+test("关闭播放器立即取消仍在读取的线路样本", async () => {
+  const controller = new AbortController();
+  let requested;
+  const began = new Promise(resolve => { requested = resolve; });
+  const result = measurePlaybackCandidate({ url: "https://example.org/video" }, {
+    signal: controller.signal,
+    fetchImpl: (_url, { signal }) => new Promise((resolve, reject) => {
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true }); requested();
+    })
+  });
+  await began; controller.abort();
+  assert.equal((await result).ok, false);
 });

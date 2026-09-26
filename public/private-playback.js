@@ -1,5 +1,6 @@
-import { measurePlaybackCandidate } from "./playback-route.js";
-import { attachSegmentedPlayback } from "./segmented-playback.js?v=20260920-2";
+import { measurePlaybackCandidate } from "./playback-route.js?v=20260926-2";
+import { attachSegmentedPlayback } from "./segmented-playback.js?v=20260926-2";
+import { createAdaptiveBuffering } from "./adaptive-buffer.js?v=20260926-1";
 
 export const PRIVATE_MEMORY_LIMIT = 96 * 1024 * 1024;
 export function memoryBufferEligible(size) { return Number.isSafeInteger(size) && size > 0 && size <= PRIVATE_MEMORY_LIMIT; }
@@ -15,9 +16,11 @@ export function createPrivatePlayback(video, item, { message, fetchImpl = fetch,
   const request = (url, options = {}) => fetchImpl(url, { credentials: "include", cache: "no-store", ...options, signal: AbortSignal.any([lifetime.signal, ...(options.signal ? [options.signal] : [])]) });
   const fallback = { id: "site", label: "兼容线路", url: new URL(item.url, pageOrigin).href };
   const active = () => !dead;
+  let recovery;
   let previousMessage = "", progressAt = 0;
   const say = text => { if (active() && text !== previousMessage) { previousMessage = text; message(text); } };
   function resetMedia() {
+    recovery?.reset();
     clearInterval(timer); transfer?.abort(); transfer = null; segmented?.destroy(); segmented = null;
     video.pause(); video.removeAttribute("src"); video.load();
     if (objectUrl) URL.revokeObjectURL(objectUrl); objectUrl = null;
@@ -68,23 +71,32 @@ export function createPrivatePlayback(video, item, { message, fetchImpl = fetch,
     }
     video.crossOrigin = "use-credentials";
     if (route.id === "site" && /^\/api\/my-media\/streams\/[a-f0-9]{32}\/index\.m3u8$/.test(item.streamUrl || "")) {
-      try { segmented = await attachSegmentedPlayback(video, item.streamUrl, { active, onFatal: () => { segmented?.destroy(); segmented = null; video.src = route.url; video.load(); } }); }
+      try { segmented = await attachSegmentedPlayback(video, item.streamUrl, { active, onProgress: () => { lastAdvance = performance.now(); }, onFatal: () => { segmented?.destroy(); segmented = null; video.src = route.url; video.load(); } }); }
       catch { video.src = route.url; video.load(); }
     } else { video.src = route.url; video.load(); }
     if (!active()) return;
-    let positioned = position === 0; const began = performance.now(); lastAdvance = began;
+    let positioned = position === 0, lastBufferedEnd = position; const began = performance.now(); lastAdvance = began; lastTime = position;
     timer = setInterval(() => {
       if (!active()) return;
       if (!positioned && video.readyState >= 1) { video.currentTime = position; positioned = true; }
       const ahead = playableAhead(video), remaining = video.duration - video.currentTime;
+      const bufferedEnd = video.currentTime + ahead;
+      if (bufferedEnd > lastBufferedEnd + 0.05) lastAdvance = performance.now();
+      lastBufferedEnd = bufferedEnd;
       if (starting && (ahead >= Math.min(12, remaining) - 0.2 || (performance.now() - began > 20000 && ahead > 1))) { starting = false; void play(); }
       else if (starting) say(`正在缓冲原画 ${Math.floor(ahead)} 秒 · ${route.label}`);
       if (video.currentTime > lastTime + 0.1) { lastTime = video.currentTime; lastAdvance = performance.now(); }
-      if ((starting || (!video.paused && !video.ended)) && ahead < 0.5 && performance.now() - lastAdvance > 15000) { clearInterval(timer); void failover(); }
+      if (!video.seeking && !recovery.recovering && (starting || (!video.paused && !video.ended)) && ahead < 0.5 && performance.now() - lastAdvance > 30000) { clearInterval(timer); void failover(); }
     }, 400);
   }
   listen("error", () => { if (active() && route && !objectUrl) void failover(); });
   listen("playing", () => { starting = false; lastAdvance = performance.now(); say(""); });
+  listen("seeking", () => { lastAdvance = performance.now(); });
+  listen("play", () => { lastAdvance = performance.now(); });
+  recovery = createAdaptiveBuffering(video, { active, onState: state => {
+    if (state.recovering) say(`连续缓冲中断，先缓存原画 ${Math.floor(state.ahead)}/${Math.ceil(state.target)} 秒后继续；也可点击视频立即播放。`);
+    else if (state.reason === "manual") say("缓冲暂时没有进展，可点击视频播放键重试，原画保持不变。");
+  } });
   const ready = (async () => {
     let direct;
     say("正在选择安全播放线路…");
@@ -93,7 +105,7 @@ export function createPrivatePlayback(video, item, { message, fetchImpl = fetch,
       if (!response.ok) throw new Error("Playback authorization unavailable");
       const grant = (await response.json()).direct;
       if (grant && new URL(grant.origin).protocol === "https:" && new URL(grant.origin).hostname === "steamway.gamer1ce.top") {
-        const session = await request(`${grant.origin}/api/private-playback/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticket: grant.ticket }), signal: AbortSignal.timeout(4000) });
+        const session = await request(`${grant.origin}/api/private-playback/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ticket: grant.ticket }), signal: AbortSignal.timeout(8000) });
         if (session.ok) {
           const result = await session.json();
           const url = new URL(result.url);
@@ -104,7 +116,7 @@ export function createPrivatePlayback(video, item, { message, fetchImpl = fetch,
     if (!active()) return;
     let chosen = fallback;
     if (direct) {
-      const options = { fetchImpl: request, fileSize: item.size, sampleBytes: 256 * 1024, tailSampleBytes: 32 * 1024, timeoutMs: 4000 };
+      const options = { fetchImpl: request, fileSize: item.size, sampleBytes: 512 * 1024, tailSampleBytes: 64 * 1024, timeoutMs: 8000, signal: lifetime.signal };
       // Validate the private direct route without waiting for a slow fallback
       // probe or making it compete with the video's first bytes.
       const result = await measurePlaybackCandidate(direct, options);
@@ -113,5 +125,5 @@ export function createPrivatePlayback(video, item, { message, fetchImpl = fetch,
     if (active()) await start(chosen);
   })();
   ready.catch(() => say("视频暂时无法加载，请关闭后重试。"));
-  return { ready, destroy() { dead = true; lifetime.abort(); resetMedia(); for (const [event, fn] of listeners) video.removeEventListener(event, fn); } };
+  return { ready, destroy() { dead = true; recovery.destroy(); lifetime.abort(); resetMedia(); for (const [event, fn] of listeners) video.removeEventListener(event, fn); } };
 }

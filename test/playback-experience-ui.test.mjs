@@ -9,12 +9,12 @@ const html = readFileSync(path.join(root, "public/index.html"), "utf8");
 const script = readFileSync(path.join(root, "public/app.js"), "utf8");
 const styles = readFileSync(path.join(root, "public/styles.css"), "utf8");
 
-test("视频备用线路按实测速度排序且允许手动切换", () => {
-  assert.match(script, /rankPlaybackCandidates\(candidates, \{ fileSize: item\.size \}\)/);
+test("视频优先验证直连且允许手动切换", () => {
+  assert.match(script, /rankPlaybackCandidates\(candidates, \{ fileSize: item\.size, signal: routeSignal, preferDirect: true \}\)/);
   assert.match(script, /class="highlight-route-next"[^>]*>换条线路</);
   assert.match(script, /fallbackCandidates = rankedCandidates\.slice\(1\)/);
   assert.match(styles, /\.highlight-buffer-actions \.highlight-route-next/);
-  assert.match(html, /playback-route\.js\?v=20260919-1/);
+  assert.match(html, /playback-route\.js\?v=20260926-2/);
 });
 
 test("线路切换保留播放位置，慢缓存不再被误判为故障", () => {
