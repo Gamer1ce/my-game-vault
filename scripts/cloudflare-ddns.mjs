@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, rename } from 'node:fs/promises';
 import { promisify } from 'node:util';
+import { inspectNetwork, nextDdnsStatus, retryRequest } from '../src/ddns-health.mjs';
 
 const execFileAsync = promisify(execFile);
 const configPath =
@@ -31,26 +32,15 @@ async function loadConfig() {
 }
 
 async function getPublicIpv6(config) {
-  const { stdout } = await execFileAsync('/sbin/ifconfig', [config.interface]);
-  const candidates = stdout
-    .split('\n')
-    .filter((line) => /\binet6\b/.test(line))
-    .map((line) => ({
-      line,
-      address: line.match(/\binet6\s+([^\s%]+)/)?.[1],
-    }))
-    .filter(({ address }) => address && /^[23][0-9a-f:]+$/i.test(address));
-
-  if (!candidates.length) {
-    throw new Error(`${config.interface} 没有可用的公网 IPv6 地址`);
-  }
-
-  const preferred = candidates.find(({ line, address }) =>
-    /\bdynamic\b/.test(line) &&
-    (!config.preferredSuffix || address.toLowerCase().endsWith(config.preferredSuffix.toLowerCase())),
-  );
-  const stable = candidates.find(({ line }) => !/\btemporary\b/.test(line));
-  return (preferred || stable || candidates[0]).address;
+  const readRoute = args => execFileAsync('/sbin/route', args, { timeout: 5000 })
+    .then(result => result.stdout).catch(() => '');
+  const [iface, route4, route6] = await Promise.all([
+    execFileAsync('/sbin/ifconfig', ['-L', config.interface], { timeout: 5000 }),
+    readRoute(['-n', 'get', 'default']), readRoute(['-n', 'get', '-inet6', 'default']),
+  ]);
+  return inspectNetwork({ interfaceName: config.interface, interfaceText: iface.stdout, route4, route6,
+    expectedGateway: config.expectedGateway, preferredSuffix: config.preferredSuffix,
+    previousAddress: config.previousAddress });
 }
 
 async function getToken(config) {
@@ -61,27 +51,38 @@ async function getToken(config) {
     config.keychainAccount,
     '-s',
     config.keychainService,
-  ]);
+  ], { timeout: 10000 });
   const token = stdout.trim();
   if (!token) throw new Error('钥匙串中的 Cloudflare API Token 为空');
   return token;
 }
 
 async function cloudflareRequest(config, token, path, options = {}) {
-  const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  });
-  const payload = await response.json();
-  if (!response.ok || !payload.success) {
-    const details = payload.errors?.map((error) => error.message).join('; ') || response.statusText;
-    throw new Error(`Cloudflare API 请求失败 (${response.status}): ${details}`);
-  }
-  return payload.result;
+  // Retry only idempotent reads/updates, never a potentially completed POST.
+  return retryRequest(async () => {
+    let response, payload;
+    try {
+      response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
+        ...options,
+        signal: AbortSignal.timeout(10000),
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          ...options.headers,
+        },
+      });
+      payload = await response.json();
+    } catch (cause) {
+      throw Object.assign(new Error('Cloudflare API 网络连接失败、超时或响应格式异常'), {
+        retryable: !response || response.status === 429 || response.status >= 500 || response.ok, cause,
+      });
+    }
+    if (!response.ok || !payload.success) {
+      const details = payload.errors?.map((error) => error.message).join('; ') || response.statusText;
+      throw Object.assign(new Error(`Cloudflare API 请求失败 (${response.status}): ${details}`), { retryable: response.status === 429 || response.status >= 500 });
+    }
+    return payload.result;
+  }, { attempts: !options.method || options.method === 'PUT' ? 3 : 1 });
 }
 
 async function updateRecord(config, token, address, record) {
@@ -122,11 +123,42 @@ async function updateRecord(config, token, address, record) {
   }
 }
 
+const statusPath = `${configPath}.status.json`;
+let previous;
+let snapshot;
+let stage = 'config_error';
+try { previous = JSON.parse(await readFile(statusPath, 'utf8')); } catch {}
+async function persist(result) {
+  const status = nextDdnsStatus(previous, result);
+  await writeFile(`${statusPath}.tmp`, `${JSON.stringify(status, null, 2)}\n`, { mode: 0o600 });
+  await rename(`${statusPath}.tmp`, statusPath);
+  if (!status.ok) log(`诊断 ${status.code}；连续失败 ${status.consecutiveFailures} 次；开始于 ${status.failedSince}`);
+}
 try {
   const config = await loadConfig();
-  const [address, token] = await Promise.all([getPublicIpv6(config), getToken(config)]);
-  await Promise.all(config.records.map((record) => updateRecord(config, token, address, record)));
+  stage = 'network_check_failed';
+  snapshot = await getPublicIpv6({ ...config, previousAddress: previous?.lastPublishedAddress });
+  if (!process.argv.includes('--check')) log(`网络诊断 ${JSON.stringify(snapshot)}`);
+  if (process.argv.includes('--check')) {
+    console.log(JSON.stringify(snapshot, null, 2));
+    process.exitCode = snapshot.ok ? 0 : 1;
+  } else if (!snapshot.ok) {
+    await persist({ ok: false, code: snapshot.code, message: snapshot.message, network: snapshot });
+    throw Object.assign(new Error(snapshot.message), { diagnosed: true });
+  } else {
+    stage = 'credential_error';
+    const token = await getToken(config);
+    stage = 'dns_update_failed';
+    const results = await Promise.allSettled(config.records.map(record => updateRecord(config, token, snapshot.address, record)));
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed) throw failed.reason;
+    await persist({ ok: true, code: 'dns_updated', message: '域名已与可用家庭 IPv6 一致（不代表外部端口已验证）', network: snapshot, publishedAddress: snapshot.address });
+  }
 } catch (error) {
+  if (!error.diagnosed && !process.argv.includes('--check')) {
+    try { await persist({ ok: false, code: stage, message: error.message, network: snapshot }); }
+    catch { console.error('无法写入本机 DDNS 诊断状态'); }
+  }
   console.error(`${new Date().toISOString()} DDNS 失败：${error.message}`);
   process.exitCode = 1;
 }
